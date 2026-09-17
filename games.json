@@ -1,0 +1,6 @@
+[
+  { "id": "tictactoe", "label": "Tic-Tac-Toe" },
+  { "id": "simon",     "label": "Simon" },
+  { "id": "connect4",  "label": "Connect 4" },
+  { "id": "memory",    "label": "Memory" }
+]
