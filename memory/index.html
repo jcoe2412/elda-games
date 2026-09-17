@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Memory</title>
+<style>
+  :root {
+    --bg:      #0e0e1c;
+    --cover:   #16163a;
+    --face:    #1e1e40;
+    --accent:  #6c63ff;
+    --matched: #00c897;
+    --green:   #22bb33;
+    --red:     #dd2200;
+    --yellow:  #ddaa00;
+    --dim:     #555;
+    --text:    #e0e0e0;
+    /* --cell is set dynamically by JS based on the number of rows */
+    --cell:    min(13vh, 11vw);
+    --gap:     10px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none;
+  }
+  #game {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 0.7rem;
+    padding: 0.5rem;
+  }
+  h1 {
+    font-size: 3rem; font-weight: 900; letter-spacing: .06em;
+  }
+  #status {
+    font-size: 2.2rem; font-weight: 700; min-height: 2.7rem;
+    text-align: center; letter-spacing: .02em;
+    transition: color .25s;
+  }
+  #status.your-turn { color: #4488ff; }
+  #status.matched   { color: var(--matched); }
+  #status.no-match  { color: var(--red); }
+  #status.win       { color: var(--green); }
+  #status.idle      { color: var(--dim); }
+
+  /* Board — columns/rows set dynamically by JS */
+  #board {
+    display: grid;
+    gap: var(--gap);
+  }
+
+  /* Card flip */
+  .card {
+    width: var(--cell); height: var(--cell);
+    perspective: 800px;
+    cursor: pointer;
+  }
+  .card-inner {
+    width: 100%; height: 100%;
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform .38s ease;
+    border-radius: 14px;
+  }
+  .card.flipped .card-inner,
+  .card.matched .card-inner { transform: rotateY(180deg); }
+
+  .card-cover, .card-face {
+    position: absolute; inset: 0;
+    border-radius: 14px;
+    backface-visibility: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* Face-down side — dot-grid pattern */
+  .card-cover {
+    background: var(--cover);
+    border: 2px solid #2a2a5a;
+    background-image: radial-gradient(circle, #2e2e6a 1.5px, transparent 1.5px);
+    background-size: calc(var(--cell) / 5) calc(var(--cell) / 5);
+  }
+  /* Focus ring on cover only */
+  .card.focused .card-cover {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px #6c63ff55;
+  }
+
+  /* Face-up side — emoji symbol */
+  .card-face {
+    background: var(--face);
+    border: 2px solid #333366;
+    transform: rotateY(180deg);
+    font-size: calc(var(--cell) * 0.52);
+    /* keep emoji crisp */
+    line-height: 1;
+  }
+
+  /* Matched glow */
+  .card.matched .card-face {
+    border-color: var(--matched);
+    box-shadow: 0 0 18px 5px #00c89755;
+  }
+
+  #meta {
+    display: flex; align-items: center; gap: 1.4rem;
+    color: var(--dim); font-size: 0.9rem;
+  }
+  #pairs-count { font-size: 1.5rem; color: var(--text); font-weight: 700; }
+</style>
+</head>
+<body>
+<div id="game">
+  <h1 id="title-el"></h1>
+  <div id="status" class="idle"></div>
+  <div id="board"></div>
+  <div id="meta">
+    <span id="pairs-count"></span>
+    <span id="hint"></span>
+  </div>
+</div>
+
+<script>
+// ── i18n ──────────────────────────────────────────────────────────────────
+const LANG = (() => {
+  const p = new URLSearchParams(location.search);
+  const l = (p.get("lang") || "en").split(/[-_]/)[0].toLowerCase();
+  return ["fr", "nl"].includes(l) ? l : "en";
+})();
+
+const T = {
+  en: {
+    title:      "Memory",
+    yourTurn:   "Find a pair",
+    matched:    "Match! ✓",
+    noMatch:    "No match",
+    youWin:     "You win! 🎉",
+    pressAgain: "Press any key to play again",
+    pairs:      (f, t) => `${f} / ${t} pairs`,
+    hint:       "↑ ↓ ← →  move   Enter / A  flip",
+  },
+  fr: {
+    title:      "Memory",
+    yourTurn:   "Trouvez une paire",
+    matched:    "Paire ! ✓",
+    noMatch:    "Pas de paire",
+    youWin:     "Vous gagnez ! 🎉",
+    pressAgain: "Appuyez sur une touche pour rejouer",
+    pairs:      (f, t) => `${f} / ${t} paires`,
+    hint:       "↑ ↓ ← →  déplacer   Entrée / A  retourner",
+  },
+  nl: {
+    title:      "Memory",
+    yourTurn:   "Zoek een paar",
+    matched:    "Paar! ✓",
+    noMatch:    "Geen paar",
+    youWin:     "U wint! 🎉",
+    pressAgain: "Druk een toets in om opnieuw te spelen",
+    pairs:      (f, t) => `${f} / ${t} paar`,
+    hint:       "↑ ↓ ← →  bewegen   Enter / A  omdraaien",
+  },
+}[LANG];
+
+// ── Text-to-speech ────────────────────────────────────────────────────────
+const VOICE = new URLSearchParams(location.search).get("voice") !== "0";
+const SPEECH_LANG = { en: "en-US", fr: "fr-FR", nl: "nl-NL" }[LANG];
+
+const TV = {
+  en: {
+    yourTurn:   "Find a matching pair! Use the arrow keys to move and press Enter to flip a card.",
+    matched:    "Great match! Keep going!",
+    noMatch:    "Not a match. Try again!",
+    youWin:     "Well done! You found all the pairs!",
+    pressAgain: "Press any key to play again.",
+  },
+  fr: {
+    yourTurn:   "Trouvez une paire ! Utilisez les touches fléchées pour vous déplacer et Entrée pour retourner une carte.",
+    matched:    "Bonne paire ! Continuez !",
+    noMatch:    "Pas de correspondance. Réessayez !",
+    youWin:     "Bravo ! Vous avez trouvé toutes les paires !",
+    pressAgain: "Appuyez sur une touche pour rejouer.",
+  },
+  nl: {
+    yourTurn:   "Zoek een overeenkomend paar! Gebruik de pijltjestoetsen om te bewegen en druk op Enter om een kaart om te draaien.",
+    matched:    "Goed gevonden! Ga door!",
+    noMatch:    "Geen overeenkomst. Probeer opnieuw!",
+    youWin:     "Goed gedaan! U heeft alle paren gevonden!",
+    pressAgain: "Druk een toets in om opnieuw te spelen.",
+  },
+}[LANG];
+
+let _voice = null, _ttsReady = false;
+
+function _pickVoice() {
+  const vv = window.speechSynthesis.getVoices();
+  _voice = vv.find(v => v.lang === SPEECH_LANG  && v.localService)
+        || vv.find(v => v.lang.startsWith(LANG) && v.localService)
+        || vv.find(v => v.lang === SPEECH_LANG)
+        || vv.find(v => v.lang.startsWith(LANG))
+        || null;
+}
+
+function ensureTTS() {
+  if (!VOICE || _ttsReady || !window.speechSynthesis) return;
+  _ttsReady = true;
+  const init = () => {
+    _pickVoice();
+    for (const text of Object.values(TV)) {
+      const u = new SpeechSynthesisUtterance(text);
+      if (_voice) u.voice = _voice;
+      u.lang = SPEECH_LANG; u.volume = 0; u.rate = 1.5;
+      window.speechSynthesis.speak(u);
+    }
+  };
+  if (window.speechSynthesis.getVoices().length) init();
+  else window.speechSynthesis.addEventListener('voiceschanged', init, { once: true });
+}
+
+function speak(text) {
+  if (!VOICE || !window.speechSynthesis) return Promise.resolve();
+  window.speechSynthesis.cancel();
+  return new Promise(resolve => {
+    const u = new SpeechSynthesisUtterance(text);
+    if (_voice) u.voice = _voice;
+    u.lang = SPEECH_LANG; u.rate = 1.05; u.volume = 1.0;
+    u.onend = resolve; u.onerror = resolve;
+    window.speechSynthesis.speak(u);
+  });
+}
+
+// ── Audio ──────────────────────────────────────────────────────────────────
+let audioCtx = null;
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function unlockAudio() { if (audioCtx?.state === "suspended") audioCtx.resume(); }
+
+function beep(freq, type, duration, volume = 0.35, startDelay = 0) {
+  try {
+    const ctx = getCtx(), osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = type; osc.frequency.value = freq;
+    const t = ctx.currentTime + startDelay;
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    osc.start(t); osc.stop(t + duration);
+  } catch (_) {}
+}
+
+function playFlip() {
+  beep(700, "sine", 0.07, 0.18);
+}
+function playMatch() {
+  beep(523, "sine", 0.15, 0.35, 0);
+  beep(784, "sine", 0.22, 0.35, 0.14);
+}
+function playNoMatch() {
+  beep(220, "sawtooth", 0.20, 0.22);
+}
+function playWin() {
+  [[523,0],[659,.13],[784,.26],[1046,.40]].forEach(([f,d]) => beep(f,"sine",.28,.4,d));
+}
+
+// ── Game constants ─────────────────────────────────────────────────────────
+// ?pairs=4|6|8  — default 6 (easier for elderly players)
+const TOTAL_PAIRS = (() => {
+  const v = parseInt(new URLSearchParams(location.search).get("pairs") || "6", 10);
+  return [4, 6, 8].includes(v) ? v : 6;
+})();
+const COLS = 4;
+const ROWS = (TOTAL_PAIRS * 2) / COLS;   // 4→2, 6→3, 8→4
+
+// Cell size grows as the grid shrinks so cards stay large
+const CELL_SIZE = { 2: "min(20vh, 17vw)", 3: "min(16vh, 13vw)", 4: "min(13vh, 11vw)" }[ROWS];
+document.documentElement.style.setProperty("--cell", CELL_SIZE);
+
+// Pool of 8 symbols; slice to however many pairs we need
+const ALL_SYMBOLS = ["⭐","🌙","🎵","❤️","🌺","🍀","☀️","🎯"];
+const SYMBOLS = ALL_SYMBOLS.slice(0, TOTAL_PAIRS);
+
+// ── State ──────────────────────────────────────────────────────────────────
+let cards      = [];   // { symbol, el, matched, flipped }
+let focusIdx   = 0;
+let firstCard  = null;
+let locked     = false;
+let gameOver   = false;
+let foundPairs = 0;
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const statusEl = document.getElementById("status");
+const boardEl  = document.getElementById("board");
+
+document.getElementById("title-el").textContent = T.title;
+document.getElementById("hint").textContent     = T.hint;
+
+boardEl.style.gridTemplateColumns = `repeat(${COLS}, var(--cell))`;
+boardEl.style.gridTemplateRows    = `repeat(${ROWS}, var(--cell))`;
+
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className   = cls;
+}
+function updatePairsCount() {
+  document.getElementById("pairs-count").textContent = T.pairs(foundPairs, TOTAL_PAIRS);
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function renderFocus() {
+  cards.forEach((c, i) => {
+    c.el.classList.toggle("focused", i === focusIdx && !c.matched && !gameOver);
+  });
+}
+
+// ── Flip logic ─────────────────────────────────────────────────────────────
+function flipCard(idx) {
+  if (locked || gameOver) return;
+  const card = cards[idx];
+  if (card.matched || card.flipped) return;
+
+  card.flipped = true;
+  card.el.classList.add("flipped");
+  playFlip();
+
+  if (!firstCard) {
+    firstCard = card;
+    return;
+  }
+
+  locked = true;
+
+  if (firstCard.symbol === card.symbol) {
+    // Match
+    setTimeout(() => {
+      card.el.classList.add("matched");
+      firstCard.el.classList.add("matched");
+      card.matched     = true;
+      firstCard.matched = true;
+      firstCard = null;
+      locked    = false;
+      foundPairs++;
+      updatePairsCount();
+      setStatus(T.matched, "matched");
+      playMatch();
+      speak(TV.matched);
+
+      if (foundPairs === TOTAL_PAIRS) {
+        setTimeout(endGame, 700);
+      } else {
+        setTimeout(() => setStatus(T.yourTurn, "your-turn"), 1400);
+      }
+    }, 350);
+  } else {
+    // No match — flip both back after a pause
+    setStatus(T.noMatch, "no-match");
+    playNoMatch();
+    speak(TV.noMatch);
+    setTimeout(() => {
+      card.el.classList.remove("flipped");
+      firstCard.el.classList.remove("flipped");
+      card.flipped      = false;
+      firstCard.flipped = false;
+      firstCard = null;
+      locked    = false;
+      setStatus(T.yourTurn, "your-turn");
+    }, 1300);
+  }
+}
+
+// ── Game flow ──────────────────────────────────────────────────────────────
+function endGame() {
+  gameOver = true;
+  renderFocus();
+  setStatus(T.youWin, "win");
+  playWin();
+  speak(TV.youWin);
+  setTimeout(() => {
+    setStatus(T.pressAgain, "idle");
+    speak(TV.pressAgain);
+  }, 2200);
+}
+
+function newGame() {
+  ensureTTS();
+  firstCard  = null;
+  locked     = false;
+  gameOver   = false;
+  focusIdx   = 0;
+  foundPairs = 0;
+
+  const deck = shuffle([...SYMBOLS, ...SYMBOLS]);
+  boardEl.innerHTML = "";
+  cards = deck.map((symbol, i) => {
+    const el = document.createElement("div");
+    el.className = "card";
+    el.innerHTML = `<div class="card-inner">
+      <div class="card-cover"></div>
+      <div class="card-face">${symbol}</div>
+    </div>`;
+    el.addEventListener("click", () => { focusIdx = i; renderFocus(); flipCard(i); });
+    boardEl.appendChild(el);
+    return { symbol, el, matched: false, flipped: false };
+  });
+
+  updatePairsCount();
+  setStatus(T.yourTurn, "your-turn");
+  speak(TV.yourTurn);
+  renderFocus();
+}
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+function moveFocus(delta) {
+  focusIdx = Math.max(0, Math.min(cards.length - 1, focusIdx + delta));
+  renderFocus();
+}
+
+// ── Keyboard ───────────────────────────────────────────────────────────────
+document.addEventListener("keydown", e => {
+  unlockAudio();
+  ensureTTS();
+  if (gameOver) {
+    if (e.key === "Escape") { window.parent.postMessage({ type: "elda_back" }, "*"); return; }
+    newGame(); return;
+  }
+  switch (e.key) {
+    case "ArrowLeft":  e.preventDefault(); moveFocus(-1);    break;
+    case "ArrowRight": e.preventDefault(); moveFocus(+1);    break;
+    case "ArrowUp":    e.preventDefault(); moveFocus(-COLS); break;
+    case "ArrowDown":  e.preventDefault(); moveFocus(+COLS); break;
+    case "Enter":
+    case " ":          flipCard(focusIdx); break;
+    case "Escape":     window.parent.postMessage({ type: "elda_back" }, "*"); break;
+  }
+});
+
+// ── Gamepad ────────────────────────────────────────────────────────────────
+let _gpPrev = [];
+function pollGamepad() {
+  const gp = navigator.getGamepads?.()[0];
+  if (gp) {
+    unlockAudio();
+    const hit = i => gp.buttons[i]?.pressed && !_gpPrev[i];
+    if (gameOver) {
+      if (hit(9)) window.parent.postMessage({ type: "elda_back" }, "*");
+      else if ([0,1,2,3,12,13,14,15].some(hit)) newGame();
+    } else {
+      if (hit(14) || (gp.axes[0] < -.5 && !_gpPrev.axL)) moveFocus(-1);
+      if (hit(15) || (gp.axes[0] >  .5 && !_gpPrev.axR)) moveFocus(+1);
+      if (hit(12) || (gp.axes[1] < -.5 && !_gpPrev.axU)) moveFocus(-COLS);
+      if (hit(13) || (gp.axes[1] >  .5 && !_gpPrev.axD)) moveFocus(+COLS);
+      if (hit(0))  flipCard(focusIdx);
+      if (hit(1))  window.parent.postMessage({ type: "elda_back" }, "*");
+      if (hit(9))  window.parent.postMessage({ type: "elda_back" }, "*");
+    }
+    _gpPrev = gp.buttons.map(b => b.pressed);
+    _gpPrev.axL = gp.axes[0] < -.5;
+    _gpPrev.axR = gp.axes[0] >  .5;
+    _gpPrev.axU = gp.axes[1] < -.5;
+    _gpPrev.axD = gp.axes[1] >  .5;
+  }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
+// ── Start ──────────────────────────────────────────────────────────────────
+newGame();
+</script>
+</body>
+</html>

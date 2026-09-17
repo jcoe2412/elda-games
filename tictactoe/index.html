@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Tic-Tac-Toe</title>
+<style>
+  :root {
+    --bg:     #0e0e1c;
+    --card:   #14142a;
+    --border: #22224a;
+    --x:      #4488ff;
+    --o:      #ff6633;
+    --green:  #22bb33;
+    --red:    #dd2200;
+    --yellow: #ddaa00;
+    --dim:    #555;
+    --text:   #e0e0e0;
+    /* responsive cell size */
+    --cell: min(15vh, 14vw);
+    --gap:  12px;
+    --r:    16px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none;
+  }
+  #game {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 1.2rem;
+    padding: 0.5rem;
+  }
+  h1 {
+    font-size: 3rem; font-weight: 900; letter-spacing: .06em;
+    color: var(--text);
+  }
+  #status {
+    font-size: 2.2rem; font-weight: 700; min-height: 2.7rem;
+    text-align: center; letter-spacing: .02em;
+    transition: color .25s;
+  }
+  #status.your-turn { color: var(--green); }
+  #status.waiting   { color: var(--yellow); }
+  #status.win       { color: var(--green); }
+  #status.lose      { color: var(--red); }
+  #status.draw      { color: var(--dim); }
+  #status.idle      { color: var(--dim); }
+
+  /* 3×3 board — cells scale with viewport */
+  #board {
+    display: grid;
+    grid-template-columns: repeat(3, var(--cell));
+    grid-template-rows:    repeat(3, var(--cell));
+    gap: var(--gap);
+  }
+  .cell {
+    width: var(--cell); height: var(--cell);
+    background: var(--card);
+    border: 3px solid var(--border);
+    border-radius: var(--r);
+    display: flex; align-items: center; justify-content: center;
+    font-size: calc(var(--cell) * 0.58);
+    font-weight: 900;
+    cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  .cell.focused   { border-color: #5577ff; background: #18184a; }
+  .cell[data-mark="X"] { color: var(--x); }
+  .cell[data-mark="O"] { color: var(--o); }
+  /* ghost mark on empty focused cell */
+  .cell:not([data-mark]).focused::after {
+    content: attr(data-ghost);
+    color: #33336a;
+    font-size: calc(var(--cell) * 0.58);
+  }
+  /* winning cells */
+  .cell.win-cell {
+    background: rgba(34,187,51,.12);
+    border-color: var(--green);
+    box-shadow: 0 0 14px rgba(34,187,51,.35);
+  }
+  .cell[data-mark="X"].win-cell { box-shadow: 0 0 14px rgba(68,136,255,.5); border-color: var(--x); }
+  .cell[data-mark="O"].win-cell { box-shadow: 0 0 14px rgba(255,102,51,.5); border-color: var(--o); }
+
+  #meta {
+    display: flex; align-items: center; gap: 1.2rem;
+    color: var(--dim); font-size: 0.9rem;
+  }
+  #mode-badge {
+    padding: .25rem .75rem;
+    border: 1px solid #333;
+    border-radius: 99px;
+  }
+  #hint {
+    font-size: 0.9rem; color: var(--dim); text-align: center;
+  }
+</style>
+</head>
+<body>
+<div id="game">
+  <h1>Tic-Tac-Toe</h1>
+  <div id="status" class="idle"></div>
+  <div id="board"></div>
+  <div id="meta">
+    <span id="mode-badge"></span>
+    <span id="hint"></span>
+  </div>
+</div>
+
+<script>
+// ── i18n ──────────────────────────────────────────────────────────────────
+// URL param: ?lang=en (default), ?lang=fr, ?lang=nl
+const LANG = (() => {
+  const p = new URLSearchParams(location.search);
+  const l = (p.get("lang") || "en").split(/[-_]/)[0].toLowerCase();
+  return ["fr", "nl"].includes(l) ? l : "en";
+})();
+
+const T = {
+  en: {
+    yourTurn:     "Your turn (X)",
+    aiTurn:       "AI is thinking…",
+    waiting:      "Waiting for opponent…",
+    opponentTurn: "Opponent's turn (O)",
+    youWin:       "You win! 🎉",
+    youLose:      "You lose",
+    draw:         "Draw!",
+    pressAgain:   "Press any key to play again",
+    hint:         "↑ ↓ ← →  move   Enter / A  place",
+    modeSingle:   "vs AI",
+    modeOnline:   "Online",
+  },
+  fr: {
+    yourTurn:     "Votre tour (X)",
+    aiTurn:       "L'IA réfléchit…",
+    waiting:      "En attente d'un adversaire…",
+    opponentTurn: "Tour de l'adversaire (O)",
+    youWin:       "Vous gagnez ! 🎉",
+    youLose:      "Vous perdez",
+    draw:         "Égalité !",
+    pressAgain:   "Appuyez sur n'importe quelle touche pour rejouer",
+    hint:         "↑ ↓ ← →  déplacer   Entrée / A  placer",
+    modeSingle:   "vs IA",
+    modeOnline:   "En ligne",
+  },
+  nl: {
+    yourTurn:     "Uw beurt (X)",
+    aiTurn:       "AI denkt na…",
+    waiting:      "Wachten op tegenstander…",
+    opponentTurn: "Beurt van tegenstander (O)",
+    youWin:       "U wint! 🎉",
+    youLose:      "U verliest",
+    draw:         "Gelijkspel!",
+    pressAgain:   "Druk een toets in om opnieuw te spelen",
+    hint:         "↑ ↓ ← →  bewegen   Enter / A  plaatsen",
+    modeSingle:   "vs AI",
+    modeOnline:   "Online",
+  },
+}[LANG];
+
+// ── URL params ─────────────────────────────────────────────────────────────
+const params    = new URLSearchParams(location.search);
+const IS_ONLINE = params.get("mode") === "online";
+
+// ── Audio ──────────────────────────────────────────────────────────────────
+let audioCtx = null;
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function unlockAudio() {
+  if (audioCtx?.state === "suspended") audioCtx.resume();
+}
+
+function beep(freq, type, duration, volume = 0.35, startDelay = 0) {
+  try {
+    const ctx  = getCtx();
+    const osc  = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = type;
+    osc.frequency.value = freq;
+    const t = ctx.currentTime + startDelay;
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    osc.start(t); osc.stop(t + duration);
+  } catch (_) {}
+}
+
+function playPlaceX() { beep(440, "triangle", 0.12, 0.3); }
+function playPlaceO() { beep(330, "triangle", 0.12, 0.3); }
+
+function playWin() {
+  // Ascending major arpeggio C5-E5-G5-C6
+  [[523, 0], [659, 0.14], [784, 0.28], [1046, 0.42]].forEach(([f, d]) =>
+    beep(f, "sine", 0.28, 0.4, d)
+  );
+}
+
+function playLose() {
+  // Descending sad tones
+  beep(200, "sawtooth", 0.35, 0.25, 0);
+  beep(160, "sawtooth", 0.45, 0.25, 0.35);
+}
+
+function playDraw() {
+  beep(350, "sine", 0.2, 0.3, 0);
+  beep(350, "sine", 0.2, 0.3, 0.28);
+}
+
+// ── Text-to-speech ────────────────────────────────────────────────────────
+// ?voice=0  disables TTS; default is enabled
+const VOICE = new URLSearchParams(location.search).get("voice") !== "0";
+const SPEECH_LANG = { en: "en-US", fr: "fr-FR", nl: "nl-NL" }[LANG];
+
+// Verbose voice prompts — richer than the on-screen labels
+const TV = {
+  en: {
+    yourTurn:   "It's your turn! You play with X.",
+    youWin:     "Congratulations, you win!",
+    youLose:    "You lose. Better luck next time!",
+    draw:       "It's a draw!",
+    pressAgain: "Press any key to play again.",
+  },
+  fr: {
+    yourTurn:   "C'est votre tour ! Vous jouez avec les X.",
+    youWin:     "Félicitations, vous gagnez !",
+    youLose:    "Vous perdez. Bonne chance la prochaine fois !",
+    draw:       "C'est une égalité !",
+    pressAgain: "Appuyez sur une touche pour rejouer.",
+  },
+  nl: {
+    yourTurn:   "Het is uw beurt! U speelt met X.",
+    youWin:     "Gefeliciteerd, u wint!",
+    youLose:    "U verliest. Veel succes de volgende keer!",
+    draw:       "Het is gelijkspel!",
+    pressAgain: "Druk een toets in om opnieuw te spelen.",
+  },
+}[LANG];
+
+let _voice    = null;
+let _ttsReady = false;
+
+function _pickVoice() {
+  const vv = window.speechSynthesis.getVoices();
+  _voice = vv.find(v => v.lang === SPEECH_LANG  && v.localService)
+        || vv.find(v => v.lang.startsWith(LANG) && v.localService)
+        || vv.find(v => v.lang === SPEECH_LANG)
+        || vv.find(v => v.lang.startsWith(LANG))
+        || null;
+}
+
+function ensureTTS() {
+  if (!VOICE || _ttsReady || !window.speechSynthesis) return;
+  _ttsReady = true;
+  const init = () => {
+    _pickVoice();
+    for (const text of Object.values(TV)) {
+      const u = new SpeechSynthesisUtterance(text);
+      if (_voice) u.voice = _voice;
+      u.lang = SPEECH_LANG; u.volume = 0; u.rate = 1.5;
+      window.speechSynthesis.speak(u);
+    }
+  };
+  if (window.speechSynthesis.getVoices().length) init();
+  else window.speechSynthesis.addEventListener('voiceschanged', init, { once: true });
+}
+
+function speak(text) {
+  if (!VOICE || !window.speechSynthesis) return Promise.resolve();
+  window.speechSynthesis.cancel();
+  return new Promise(resolve => {
+    const u = new SpeechSynthesisUtterance(text);
+    if (_voice) u.voice = _voice;
+    u.lang    = SPEECH_LANG;
+    u.rate    = 1.05;
+    u.volume  = 1.0;
+    u.onend   = resolve;
+    u.onerror = resolve;
+    window.speechSynthesis.speak(u);
+  });
+}
+
+// ── State ──────────────────────────────────────────────────────────────────
+let board      = Array(9).fill(null);
+let focusIdx   = 4;
+let mySymbol   = "X";
+let curPlayer  = "X";
+let gameOver   = false;
+let aiThinking = false;
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const statusEl  = document.getElementById("status");
+const boardEl   = document.getElementById("board");
+const hintEl    = document.getElementById("hint");
+const modeEl    = document.getElementById("mode-badge");
+
+hintEl.textContent  = T.hint;
+modeEl.textContent  = IS_ONLINE ? T.modeOnline : T.modeSingle;
+
+// ── Board rendering ────────────────────────────────────────────────────────
+function renderBoard() {
+  boardEl.innerHTML = "";
+  board.forEach((mark, i) => {
+    const cell = document.createElement("div");
+    cell.className = "cell" + (i === focusIdx ? " focused" : "");
+    if (mark) {
+      cell.textContent  = mark;
+      cell.dataset.mark = mark;
+    } else if (i === focusIdx) {
+      // ghost symbol hint on focused empty cell
+      cell.dataset.ghost = curPlayer;
+    }
+    cell.addEventListener("click", () => { focusIdx = i; place(); });
+    boardEl.appendChild(cell);
+  });
+}
+
+function highlightWin(cells) {
+  const els = boardEl.querySelectorAll(".cell");
+  cells.forEach(i => els[i].classList.add("win-cell"));
+}
+
+function setFocus(idx) {
+  focusIdx = Math.max(0, Math.min(8, idx));
+  renderBoard();
+}
+
+// ── Game logic ─────────────────────────────────────────────────────────────
+const WIN_LINES = [
+  [0,1,2],[3,4,5],[6,7,8],
+  [0,3,6],[1,4,7],[2,5,8],
+  [0,4,8],[2,4,6],
+];
+
+function checkWinner(b) {
+  for (const [a, c, d] of WIN_LINES) {
+    if (b[a] && b[a] === b[c] && b[a] === b[d]) return { winner: b[a], line: [a, c, d] };
+  }
+  if (b.every(c => c)) return { winner: "draw" };
+  return null;
+}
+
+function place() {
+  if (gameOver || aiThinking) return;
+  if (board[focusIdx]) return;
+  if (IS_ONLINE && curPlayer !== mySymbol) return;
+
+  board[focusIdx] = curPlayer;
+  curPlayer === "X" ? playPlaceX() : playPlaceO();
+  renderBoard();
+
+  if (IS_ONLINE) {
+    window.parent.postMessage({ type: "elda_move", payload: { cell: focusIdx } }, "*");
+  }
+
+  const result = checkWinner(board);
+  if (result) { endGame(result); return; }
+
+  curPlayer = curPlayer === "X" ? "O" : "X";
+  updateStatus();
+
+  if (!IS_ONLINE && curPlayer === "O") {
+    aiThinking = true;
+    updateStatus();
+    setTimeout(aiMove, 600);
+  }
+}
+
+function aiMove() {
+  let idx;
+  if (Math.random() < 0.75) {
+    idx = bestMove(board);
+  } else {
+    const empty = board.map((v, i) => v ? null : i).filter(i => i !== null);
+    idx = empty[Math.floor(Math.random() * empty.length)];
+  }
+  board[idx] = "O";
+  playPlaceO();
+  aiThinking = false;
+  renderBoard();
+
+  const result = checkWinner(board);
+  if (result) { endGame(result); return; }
+
+  curPlayer = "X";
+  updateStatus();
+}
+
+function minimax(b, isMax, alpha, beta, depth) {
+  const r = checkWinner(b);
+  if (r) return r.winner === "O" ? 10 - depth : r.winner === "X" ? depth - 10 : 0;
+  if (depth > 8) return 0;
+  let best = isMax ? -Infinity : Infinity;
+  for (let i = 0; i < 9; i++) {
+    if (b[i]) continue;
+    b[i] = isMax ? "O" : "X";
+    const s = minimax(b, !isMax, alpha, beta, depth + 1);
+    b[i] = null;
+    if (isMax) { best = Math.max(best, s); alpha = Math.max(alpha, s); }
+    else        { best = Math.min(best, s); beta  = Math.min(beta,  s); }
+    if (beta <= alpha) break;
+  }
+  return best;
+}
+
+function bestMove(b) {
+  let best = -Infinity, idx = -1;
+  for (let i = 0; i < 9; i++) {
+    if (b[i]) continue;
+    b[i] = "O";
+    const s = minimax(b, false, -Infinity, Infinity, 0);
+    b[i] = null;
+    if (s > best) { best = s; idx = i; }
+  }
+  return idx;
+}
+
+function endGame(result) {
+  gameOver = true;
+  renderBoard();
+  if (result.winner === "draw") {
+    setStatus(T.draw, "draw");
+    speak(TV.draw);
+    playDraw();
+  } else if (result.winner === mySymbol) {
+    setStatus(T.youWin, "win");
+    speak(TV.youWin);
+    highlightWin(result.line);
+    playWin();
+  } else {
+    setStatus(T.youLose, "lose");
+    speak(TV.youLose);
+    highlightWin(result.line);
+    playLose();
+  }
+  setTimeout(() => {
+    setStatus(T.pressAgain, "idle");
+    speak(TV.pressAgain);
+  }, 2000);
+}
+
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className   = cls;
+}
+
+function updateStatus() {
+  let text, cls, isPlayerTurn;
+  if (IS_ONLINE) {
+    isPlayerTurn = curPlayer === mySymbol;
+    text = isPlayerTurn ? T.yourTurn : T.opponentTurn;
+    cls  = isPlayerTurn ? "your-turn" : "waiting";
+  } else {
+    isPlayerTurn = !aiThinking;
+    text = aiThinking ? T.aiTurn : T.yourTurn;
+    cls  = aiThinking ? "waiting" : "your-turn";
+  }
+  setStatus(text, cls);
+  if (isPlayerTurn) speak(TV.yourTurn);   // only voice the player's own turn
+}
+
+function newGame() {
+  ensureTTS();
+  board      = Array(9).fill(null);
+  curPlayer  = "X";
+  gameOver   = false;
+  aiThinking = false;
+  focusIdx   = 4;
+  renderBoard();
+  updateStatus();
+}
+
+// ── Multiplayer via postMessage ────────────────────────────────────────────
+window.addEventListener("message", (evt) => {
+  if (!evt.data) return;
+  if (evt.data.type === "elda_move" && evt.data.payload?.source !== "tv") {
+    const cell = evt.data.payload?.cell;
+    if (cell === undefined || board[cell] || gameOver) return;
+    board[cell] = curPlayer;
+    playPlaceO();
+    renderBoard();
+    const result = checkWinner(board);
+    if (result) { endGame(result); return; }
+    curPlayer = curPlayer === "X" ? "O" : "X";
+    updateStatus();
+  }
+});
+
+// ── Keyboard ───────────────────────────────────────────────────────────────
+document.addEventListener("keydown", e => {
+  unlockAudio();
+  // Any key (except Escape) restarts after game over
+  if (gameOver) {
+    if (e.key === "Escape") { window.parent.postMessage({ type: "elda_back" }, "*"); return; }
+    newGame(); return;
+  }
+  const row = Math.floor(focusIdx / 3), col = focusIdx % 3;
+  switch (e.key) {
+    case "ArrowRight": e.preventDefault(); setFocus(row * 3 + Math.min(2, col + 1)); break;
+    case "ArrowLeft":  e.preventDefault(); setFocus(row * 3 + Math.max(0, col - 1)); break;
+    case "ArrowDown":  e.preventDefault(); setFocus(Math.min(8, focusIdx + 3)); break;
+    case "ArrowUp":    e.preventDefault(); setFocus(Math.max(0, focusIdx - 3)); break;
+    case "Enter":
+    case " ":          place(); break;
+    case "Escape":     window.parent.postMessage({ type: "elda_back" }, "*"); break;
+  }
+});
+
+// ── Gamepad ────────────────────────────────────────────────────────────────
+let _gpPrev = [];
+function pollGamepad() {
+  const gp = navigator.getGamepads?.()[0];
+  if (gp) {
+    unlockAudio();
+    const hit = i => gp.buttons[i]?.pressed && !_gpPrev[i];
+    const row = Math.floor(focusIdx / 3), col = focusIdx % 3;
+
+    if (gameOver) {
+      // Any face/d-pad button restarts; Start (9) goes back
+      if (hit(9)) { window.parent.postMessage({ type: "elda_back" }, "*"); }
+      else if ([0,1,2,3,12,13,14,15].some(hit)) newGame();
+    } else {
+      if (hit(15) || (gp.axes[0] > .5  && !_gpPrev.ax0r)) setFocus(row * 3 + Math.min(2, col + 1));
+      if (hit(14) || (gp.axes[0] < -.5 && !_gpPrev.ax0l)) setFocus(row * 3 + Math.max(0, col - 1));
+      if (hit(13) || (gp.axes[1] > .5  && !_gpPrev.ax1d)) setFocus(Math.min(8, focusIdx + 3));
+      if (hit(12) || (gp.axes[1] < -.5 && !_gpPrev.ax1u)) setFocus(Math.max(0, focusIdx - 3));
+      if (hit(0))  place();
+      if (hit(1))  window.parent.postMessage({ type: "elda_back" }, "*");
+    }
+
+    _gpPrev = gp.buttons.map(b => b.pressed);
+    _gpPrev.ax0r = gp.axes[0] > .5;
+    _gpPrev.ax0l = gp.axes[0] < -.5;
+    _gpPrev.ax1d = gp.axes[1] > .5;
+    _gpPrev.ax1u = gp.axes[1] < -.5;
+  }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
+// ── Start ──────────────────────────────────────────────────────────────────
+if (IS_ONLINE) {
+  renderBoard();
+  setStatus(T.waiting, "waiting");
+} else {
+  newGame();
+}
+</script>
+</body>
+</html>
