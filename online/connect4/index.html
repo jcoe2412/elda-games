@@ -281,6 +281,7 @@ function newRound(starter, score) {
     winner: 0, winLine: null,
     score: score || { 1: 0, 2: 0 },
     rematch: { 1: false, 2: false },
+    epoch: EPOCH, rev: 0,         // bumped on every host publish (see hostCommit)
   };
 }
 
@@ -299,7 +300,10 @@ let sess = null;         // EldaOnline session
 let me = 1;              // my piece
 let focusCol = 3;
 let linked = false, everLinked = false, peerLeft = false;
-let pending = false;     // guest: move sent, snapshot not back yet
+let pending = false;     // guest: move sent, the host has not answered yet
+let pendingRev = null;   // guest: snapshot revision the pending move was based on
+let pendingToken = 0;    // guest: identifies the latest send, so old safety timers can't clear a newer one
+const EPOCH = Math.random().toString(36).slice(2, 10);   // host: identifies this page load
 let oppFocus = null;     // column the opponent's cursor is on while they choose
 let armed = null;        // touch: column selected by a first tap (second tap drops)
 const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
@@ -419,7 +423,9 @@ const pieces = (s) => s.board.flat().filter(Boolean).length;
 function adopt(next) {
   const prev = S;
   S = next;
-  pending = false;
+  // A snapshot that is not newer than the one my pending move was based on (a
+  // duplicate answer to a join, ...) says nothing about that move: keep waiting.
+  if (pending && !(prev && prev.epoch === next.epoch && next.rev <= pendingRev)) pending = false;
   armed = null;
   oppFocus = null;             // the opponent re-announces its cursor when its turn starts
   const newRoundStarted = !prev || (prev.status !== "playing" && next.status === "playing");
@@ -444,12 +450,25 @@ function adopt(next) {
 
 // ── Host: the rules ───────────────────────────────────────────────────────
 function hostCommit(next) {
+  next.epoch = EPOCH;
+  next.rev = (S && S.rev || 0) + 1;
   sess.publishSnapshot(next);   // first: nothing local may delay the guest's update
   adopt(next);
 }
 
-function hostMove(piece, col) {
+// Answer a guest that is out of step (rejected move, "sync" request): same
+// state, new revision, so the guest's pending move is released.
+function hostResync() {
+  S.rev = (S.rev || 0) + 1;
+  sess.publishSnapshot(S);
+}
+
+function hostMove(piece, col, ply) {
   if (!S || S.status !== "playing" || S.turn !== piece) return false;
+  // The guest states how many pieces were on the board when it chose (ply). A
+  // duplicate or delayed intent carries an old ply and is refused, so a double
+  // tap or a retry can never turn into a second move.
+  if (ply !== undefined && ply !== pieces(S)) return false;
   if (!Number.isInteger(col) || col < 0 || col >= COLS) return false;
   const row = getRow(S.board, col);
   if (row === -1) return false;
@@ -488,8 +507,15 @@ function place() {
     hostMove(1, focusCol);
   } else {
     pending = true;
-    sess.send("move", { col: focusCol });
-    setTimeout(() => { if (pending) { pending = false; render(); } }, 4000);   // safety net
+    pendingRev = S.rev;
+    const token = ++pendingToken;
+    sess.send("move", { col: focusCol, ply: pieces(S) });
+    // Safety net if the host never answers (message lost): release input, and ask
+    // for the current state. A late duplicate of the lost move is harmless: its
+    // ply no longer matches.
+    setTimeout(() => {
+      if (pending && token === pendingToken) { pending = false; sess.send("sync"); render(); }
+    }, 4000);
     render();
   }
 }
@@ -571,9 +597,9 @@ sess = EldaOnline.connect({
     }
     if (me !== 1) return;                       // only the host applies rules
     let ok = true;
-    if (type === "move")    ok = hostMove(2, payload && payload.col);
+    if (type === "move")    ok = hostMove(2, payload && payload.col, payload && payload.ply);
     if (type === "rematch") hostRematch(2);
-    if (!ok) sess.publishSnapshot(S);           // rejected: resync the guest
+    if (type === "sync" || !ok) hostResync();   // rejected / asked: resync the guest
   },
 
   onLink: (status) => {

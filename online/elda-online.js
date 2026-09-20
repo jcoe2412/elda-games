@@ -96,6 +96,9 @@
       link = status;
       if (status === "down") haveSnapshot = false;
       else if (role === "guest") sendJoin();     // (re)joined -> ask for a fresh snapshot
+      else if (h.getSnapshot) publishSnapshot(h.getSnapshot());
+      //  ^ host: the link (re)appeared, and updates published while it was down never
+      //    reached the guest, which has no way to know it missed any: push the state
       if (h.onLink) h.onLink(status);
     }
 

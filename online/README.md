@@ -70,9 +70,16 @@ s.leave();                 // ask the parent to end the session (Escape / quit)
 
 * **Payloads must be JSON and ≤ 16 KB**; `type` is a string ≤ 32 chars.
 * Whenever the link comes (back) up the guest automatically re-joins and the
-  host answers with a fresh snapshot, so a phone that was locked or lost its
-  connection catches up without any game code. Keep the *entire* game state
-  in the snapshot and this just works.
+  host answers with a fresh snapshot, and the host also pushes its snapshot on
+  every link-up (it may have changed while its own connection was down), so a
+  phone that was locked or lost its connection catches up without any game
+  code. Keep the *entire* game state in the snapshot and this just works.
+* **Make moves idempotent.** Messages can be delayed, retried or duplicated
+  (double taps, retries after a timeout). Have each intent name the state it was
+  based on — Connect 4 sends `ply` (the number of pieces on the board) and the
+  host refuses a move whose `ply` no longer matches — and let the host bump a
+  `rev` counter in every snapshot so the guest can tell a real update from a
+  repeat.
 * The parent ends the session on its own when the peer leaves, is silent for
   60 s, or the TV goes back to standby. What happens *next* (close the
   overlay, return to the video call, …) is decided by the parent, not by the
