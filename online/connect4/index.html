@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title>Connect 4 — online</title>
+<style>
+  :root {
+    --bg:     #0e0e1c;
+    --board:  #0d1f40;
+    --hole:   #080818;
+    --p1:     #4488ff;   /* host  — moves first in round 1 */
+    --p2:     #ff6633;   /* guest */
+    --me:     var(--p1);
+    --green:  #22bb33;
+    --red:    #dd2200;
+    --yellow: #ddaa00;
+    --dim:    #777;
+    --text:   #e0e0e0;
+    /* TV (landscape): cell sized by height, like the single-player game */
+    --cell: min(9vh, 8vw);
+    --gap:  8px;
+  }
+  /* Phone (portrait): cell sized by width so the 7 columns always fit */
+  @media (max-aspect-ratio: 1/1) {
+    :root {
+      --gap:  5px;
+      --cell: min(calc((100vw - 32px - 8 * var(--gap)) / 7), 11vh);
+    }
+    h1 { font-size: 1.6rem !important; }
+    #status { font-size: 1.3rem !important; min-height: 1.8rem !important; }
+    #meta { font-size: .85rem !important; }
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none; -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  #game {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 0.8rem;
+    padding: 0.5rem;
+  }
+  h1 { font-size: 3rem; font-weight: 900; letter-spacing: .06em; }
+  #status {
+    font-size: 2.2rem; font-weight: 700; min-height: 2.7rem;
+    text-align: center; letter-spacing: .02em;
+    transition: color .25s;
+  }
+  #status.your-turn { color: var(--me); }
+  #status.waiting   { color: var(--yellow); }
+  #status.win       { color: var(--green); }
+  #status.lose      { color: var(--red); }
+  #status.draw      { color: var(--dim); }
+  #status.idle      { color: var(--dim); }
+
+  #selector-row {
+    display: grid;
+    grid-template-columns: repeat(7, var(--cell));
+    gap: var(--gap);
+    padding: 0 var(--gap);
+    height: calc(var(--cell) * 0.38);
+    align-items: center;
+  }
+  .col-arrow {
+    display: flex; align-items: center; justify-content: center;
+    font-size: calc(var(--cell) * 0.33);
+    color: var(--me);
+    opacity: 0;
+    transition: opacity .1s, color .1s;
+  }
+  .col-arrow.active      { opacity: 1; }
+  .col-arrow.column-full { color: var(--red); }
+
+  #board {
+    display: grid;
+    grid-template-columns: repeat(7, var(--cell));
+    grid-template-rows:    repeat(6, var(--cell));
+    gap: var(--gap);
+    background: var(--board);
+    padding: var(--gap);
+    border-radius: 18px;
+    box-shadow: 0 6px 28px rgba(0,0,0,.55);
+  }
+  .cell {
+    width: var(--cell); height: var(--cell);
+    border-radius: 50%;
+    background: var(--hole);
+    cursor: pointer;
+    transition: background .12s, box-shadow .12s, filter .12s;
+  }
+  .cell.p1 { background: var(--p1); }
+  .cell.p2 { background: var(--p2); }
+  .cell.ghost { background: color-mix(in srgb, var(--me) 28%, transparent); }
+  .cell.p1.win { filter: brightness(1.5); box-shadow: 0 0 20px 5px var(--p1); }
+  .cell.p2.win { filter: brightness(1.5); box-shadow: 0 0 20px 5px var(--p2); }
+
+  #meta {
+    display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap; justify-content: center;
+    color: var(--dim); font-size: 0.95rem;
+  }
+  #me-badge {
+    display: inline-flex; align-items: center; gap: .5rem;
+    padding: .25rem .75rem;
+    border: 1px solid #333;
+    border-radius: 99px;
+  }
+  #me-dot { width: .9em; height: .9em; border-radius: 50%; background: var(--me); }
+  #again {
+    font: inherit; font-size: 1.3rem; font-weight: 700;
+    min-height: 48px; padding: .5rem 1.8rem;
+    border: 0; border-radius: 99px;
+    background: var(--me); color: #fff; cursor: pointer;
+  }
+  #again:disabled { background: #333; color: var(--dim); cursor: default; }
+  .hidden { display: none !important; }
+  @media (hover: none) { #hint { display: none; } }   /* touch phones: no keyboard hints */
+</style>
+</head>
+<body>
+<div id="game">
+  <h1 id="title-el"></h1>
+  <div id="status" class="idle"></div>
+  <div id="selector-row"></div>
+  <div id="board"></div>
+  <div id="meta">
+    <span id="me-badge"><span id="me-dot"></span><span id="me-text"></span></span>
+    <span id="score"></span>
+    <span id="hint"></span>
+  </div>
+  <button id="again" class="hidden"></button>
+</div>
+
+<script src="../elda-online.js"></script>
+<script>
+// ── i18n ──────────────────────────────────────────────────────────────────
+// ?lang=en (default) | fr | nl
+const PARAMS = new URLSearchParams(location.search);
+const LANG = (() => {
+  const l = (PARAMS.get("lang") || "en").split(/[-_]/)[0].toLowerCase();
+  return ["fr", "nl"].includes(l) ? l : "en";
+})();
+
+const T = {
+  en: {
+    title:      "Connect 4",
+    yourTurn:   "Your turn",
+    oppTurn:    "Opponent's turn",
+    youWin:     "You win! 🎉",
+    youLose:    "You lose",
+    draw:       "Draw!",
+    again:      "Play again",
+    waitAgain:  "Waiting for your opponent…",
+    oppAgain:   "Your opponent wants a rematch",
+    waitOpp:    "Waiting for your opponent…",
+    connecting: "Connecting…",
+    lost:       "Connection lost — waiting…",
+    oppLeft:    "Your opponent left the game",
+    blue:       "You play blue",
+    orange:     "You play orange",
+    score:      "You {me} – {opp} Opponent",
+    hint:       "← →  move   Enter / A  drop   Esc  quit",
+    hintOver:   "Enter / A  play again   Esc  quit",
+  },
+  fr: {
+    title:      "Puissance 4",
+    yourTurn:   "Votre tour",
+    oppTurn:    "Tour de l'adversaire",
+    youWin:     "Vous gagnez ! 🎉",
+    youLose:    "Vous perdez",
+    draw:       "Égalité !",
+    again:      "Rejouer",
+    waitAgain:  "En attente de votre adversaire…",
+    oppAgain:   "Votre adversaire veut rejouer",
+    waitOpp:    "En attente de votre adversaire…",
+    connecting: "Connexion…",
+    lost:       "Connexion perdue — en attente…",
+    oppLeft:    "Votre adversaire a quitté la partie",
+    blue:       "Vous jouez bleu",
+    orange:     "Vous jouez orange",
+    score:      "Vous {me} – {opp} Adversaire",
+    hint:       "← →  déplacer   Entrée / A  poser   Échap  quitter",
+    hintOver:   "Entrée / A  rejouer   Échap  quitter",
+  },
+  nl: {
+    title:      "Vier op een rij",
+    yourTurn:   "Uw beurt",
+    oppTurn:    "Beurt van de tegenstander",
+    youWin:     "U wint! 🎉",
+    youLose:    "U verliest",
+    draw:       "Gelijkspel!",
+    again:      "Nog een keer",
+    waitAgain:  "Wachten op uw tegenstander…",
+    oppAgain:   "Uw tegenstander wil opnieuw spelen",
+    waitOpp:    "Wachten op uw tegenstander…",
+    connecting: "Verbinden…",
+    lost:       "Verbinding verbroken — wachten…",
+    oppLeft:    "Uw tegenstander heeft het spel verlaten",
+    blue:       "U speelt blauw",
+    orange:     "U speelt oranje",
+    score:      "U {me} – {opp} Tegenstander",
+    hint:       "← →  bewegen   Enter / A  plaatsen   Esc  stoppen",
+    hintOver:   "Enter / A  opnieuw   Esc  stoppen",
+  },
+}[LANG];
+
+// ── Text-to-speech (TV only: the phone app passes ?voice=0) ───────────────
+const VOICE = PARAMS.get("voice") !== "0";
+const SPEECH_LANG = { en: "en-US", fr: "fr-FR", nl: "nl-NL" }[LANG];
+
+const TV = {
+  en: { yourTurn: "It's your turn!",   youWin: "Congratulations, you win!",
+        youLose: "You lose. Better luck next time!", draw: "It's a draw!" },
+  fr: { yourTurn: "C'est votre tour !", youWin: "Félicitations, vous gagnez !",
+        youLose: "Vous perdez. Bonne chance la prochaine fois !", draw: "C'est une égalité !" },
+  nl: { yourTurn: "Het is uw beurt!",   youWin: "Gefeliciteerd, u wint!",
+        youLose: "U verliest. Veel succes de volgende keer!", draw: "Het is gelijkspel!" },
+}[LANG];
+
+let _voice = null, _ttsReady = false;
+
+function _pickVoice() {
+  const vv = window.speechSynthesis.getVoices();
+  _voice = vv.find(v => v.lang === SPEECH_LANG  && v.localService)
+        || vv.find(v => v.lang.startsWith(LANG) && v.localService)
+        || vv.find(v => v.lang === SPEECH_LANG)
+        || vv.find(v => v.lang.startsWith(LANG))
+        || null;
+}
+
+function ensureTTS() {
+  if (!VOICE || _ttsReady || !window.speechSynthesis) return;
+  _ttsReady = true;
+  const init = () => {
+    _pickVoice();
+    for (const text of Object.values(TV)) {
+      const u = new SpeechSynthesisUtterance(text);
+      if (_voice) u.voice = _voice;
+      u.lang = SPEECH_LANG; u.volume = 0; u.rate = 1.5;
+      window.speechSynthesis.speak(u);
+    }
+  };
+  if (window.speechSynthesis.getVoices().length) init();
+  else window.speechSynthesis.addEventListener('voiceschanged', init, { once: true });
+}
+
+function speak(text) {
+  if (!VOICE || !window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  if (_voice) u.voice = _voice;
+  u.lang = SPEECH_LANG; u.rate = 1.05; u.volume = 1.0;
+  window.speechSynthesis.speak(u);
+}
+
+// ── Audio ─────────────────────────────────────────────────────────────────
+let audioCtx = null;
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function unlockAudio() { if (audioCtx?.state === "suspended") audioCtx.resume(); }
+
+function beep(freq, type, duration, volume = 0.35, startDelay = 0) {
+  try {
+    const ctx = getCtx(), osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = type; osc.frequency.value = freq;
+    const t = ctx.currentTime + startDelay;
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    osc.start(t); osc.stop(t + duration);
+  } catch (_) {}
+}
+function playDrop() { beep(200, "triangle", 0.07, 0.4); beep(130, "sine", 0.11, 0.2, 0.06); }
+function playWin()  { [[523,0],[659,.14],[784,.28],[1046,.42]].forEach(([f,d]) => beep(f,"sine",.28,.4,d)); }
+function playLose() { beep(200, "sawtooth", .35, .25, 0); beep(160, "sawtooth", .45, .25, .35); }
+function playDraw() { beep(350, "sine", .2, .3, 0); beep(350, "sine", .2, .3, .28); }
+
+// ── Rules (pure) ──────────────────────────────────────────────────────────
+const ROWS = 6, COLS = 7;
+
+function emptyBoard() {
+  return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+}
+
+// Lowest empty row in a column, or -1 if full
+function getRow(b, col) {
+  for (let r = ROWS - 1; r >= 0; r--) if (b[r][col] === 0) return r;
+  return -1;
+}
+
+// null while the game goes on, {winner, line} for a win, {winner:0} for a draw
+function checkWinner(b) {
+  const win4 = (cells) => {
+    const v = cells[0];
+    return v && cells.every(x => x === v) ? v : 0;
+  };
+  const dirs = [[0, 1], [1, 0], [1, 1], [-1, 1]];
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      for (const [dr, dc] of dirs) {
+        const line = [0, 1, 2, 3].map(i => [r + dr * i, c + dc * i]);
+        if (line.some(([rr, cc]) => rr < 0 || rr >= ROWS || cc < 0 || cc >= COLS)) continue;
+        const w = win4(line.map(([rr, cc]) => b[rr][cc]));
+        if (w) return { winner: w, line };
+      }
+  if (b[0].every(x => x !== 0)) return { winner: 0 };
+  return null;
+}
+
+// ── Game state ────────────────────────────────────────────────────────────
+// The HOST owns the rules. This object is exactly what the host publishes as
+// a snapshot; the guest only ever renders the last snapshot it received.
+//   host = piece 1 (blue), guest = piece 2 (orange).
+function newRound(starter, score) {
+  return {
+    board: emptyBoard(), turn: starter, starter,
+    status: "playing",            // "playing" | "won" | "draw"
+    winner: 0, winLine: null,
+    score: score || { 1: 0, 2: 0 },
+    rematch: { 1: false, 2: false },
+  };
+}
+
+function validSnapshot(s) {
+  return !!s && Array.isArray(s.board) && s.board.length === ROWS
+    && s.board.every(r => Array.isArray(r) && r.length === COLS)
+    && (s.turn === 1 || s.turn === 2)
+    && ["playing", "won", "draw"].includes(s.status)
+    && s.score && s.rematch;
+}
+
+const clone = (o) => JSON.parse(JSON.stringify(o));
+
+let S = null;            // current state (host: authoritative, guest: last snapshot)
+let sess = null;         // EldaOnline session
+let me = 1;              // my piece
+let focusCol = 3;
+let linked = false, everLinked = false, peerLeft = false;
+let pending = false;     // guest: move sent, snapshot not back yet
+
+// ── DOM ───────────────────────────────────────────────────────────────────
+const statusEl   = document.getElementById("status");
+const boardEl    = document.getElementById("board");
+const selectorEl = document.getElementById("selector-row");
+const againEl    = document.getElementById("again");
+
+document.getElementById("title-el").textContent = T.title;
+for (let c = 0; c < COLS; c++) {
+  const el = document.createElement("div");
+  el.className = "col-arrow";
+  el.id = `arrow-${c}`;
+  el.textContent = "▼";
+  selectorEl.appendChild(el);
+}
+
+function canPlay() {
+  return !!S && linked && !peerLeft && !pending && S.status === "playing" && S.turn === me;
+}
+
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className   = cls;
+}
+
+function render() {
+  boardEl.innerHTML = "";
+  const winSet = new Set((S && S.winLine || []).map(([r, c]) => `${r},${c}`));
+  const ghostRow = (S && canPlay()) ? getRow(S.board, focusCol) : -1;
+
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      const v = S ? S.board[r][c] : 0;
+      if (v) {
+        cell.classList.add(v === 1 ? "p1" : "p2");
+        if (winSet.has(`${r},${c}`)) cell.classList.add("win");
+      } else if (r === ghostRow && c === focusCol) {
+        cell.classList.add("ghost");
+      }
+      cell.addEventListener("click", () => { focusCol = c; place(); });
+      boardEl.appendChild(cell);
+    }
+  }
+
+  for (let c = 0; c < COLS; c++) {
+    const el = document.getElementById(`arrow-${c}`);
+    el.classList.toggle("active", c === focusCol && !!S && canPlay());
+    el.classList.toggle("column-full", !!S && c === focusCol && getRow(S.board, c) === -1);
+  }
+
+  renderStatus();
+}
+
+function renderStatus() {
+  const over = !!S && S.status !== "playing";
+  document.getElementById("me-text").textContent = me === 1 ? T.blue : T.orange;
+  document.getElementById("hint").textContent = over ? T.hintOver : T.hint;
+  document.getElementById("score").textContent = S
+    ? T.score.replace("{me}", S.score[me]).replace("{opp}", S.score[3 - me]) : "";
+
+  let again = false, againText = T.again, againOff = false;
+  if (peerLeft) {
+    setStatus(T.oppLeft, "lose");
+  } else if (!linked) {
+    setStatus(everLinked ? T.lost : (me === 1 ? T.waitOpp : T.connecting), "waiting");
+  } else if (!S) {
+    setStatus(T.connecting, "waiting");
+  } else if (S.status === "playing") {
+    if (S.turn === me) setStatus(T.yourTurn, "your-turn");
+    else setStatus(T.oppTurn, "waiting");
+  } else {
+    if (S.status === "draw")            setStatus(T.draw, "draw");
+    else if (S.winner === me)           setStatus(T.youWin, "win");
+    else                                setStatus(T.youLose, "lose");
+    again = true;
+    if (S.rematch[me])            { againText = T.waitAgain; againOff = true; }
+    else if (S.rematch[3 - me])   { againText = T.again + " — " + T.oppAgain; }
+  }
+  againEl.classList.toggle("hidden", !again);
+  againEl.textContent = againText;
+  againEl.disabled = againOff;
+}
+
+// ── State changes (both sides funnel through adopt) ───────────────────────
+const pieces = (s) => s.board.flat().filter(Boolean).length;
+
+function adopt(next) {
+  const prev = S;
+  S = next;
+  pending = false;
+  const newRoundStarted = !prev || (prev.status !== "playing" && next.status === "playing");
+  if (newRoundStarted) focusCol = 3;
+
+  if (prev && pieces(next) > pieces(prev)) playDrop();
+  if (next.status !== "playing" && (!prev || prev.status === "playing")) {
+    if (next.status === "draw")       { playDraw(); speak(TV.draw); }
+    else if (next.winner === me)      { playWin();  speak(TV.youWin); }
+    else                              { playLose(); speak(TV.youLose); }
+  } else if (next.status === "playing" && next.turn === me
+             && (!prev || prev.status !== "playing" || prev.turn !== me)) {
+    speak(TV.yourTurn);
+  }
+  render();
+}
+
+// ── Host: the rules ───────────────────────────────────────────────────────
+function hostCommit(next) {
+  adopt(next);
+  sess.publishSnapshot(next);
+}
+
+function hostMove(piece, col) {
+  if (!S || S.status !== "playing" || S.turn !== piece) return false;
+  if (!Number.isInteger(col) || col < 0 || col >= COLS) return false;
+  const row = getRow(S.board, col);
+  if (row === -1) return false;
+
+  const next = clone(S);
+  next.board[row][col] = piece;
+  const result = checkWinner(next.board);
+  if (result) {
+    next.status  = result.winner ? "won" : "draw";
+    next.winner  = result.winner;
+    next.winLine = result.line || null;
+    if (result.winner) next.score[result.winner] += 1;
+  } else {
+    next.turn = 3 - piece;
+  }
+  hostCommit(next);
+  return true;
+}
+
+function hostRematch(piece) {
+  if (!S || S.status === "playing") return;
+  const next = clone(S);
+  next.rematch[piece] = true;
+  if (next.rematch[1] && next.rematch[2]) {
+    hostCommit(newRound(3 - S.starter, next.score));   // the starter alternates each round
+  } else {
+    hostCommit(next);
+  }
+}
+
+// ── Local input ───────────────────────────────────────────────────────────
+function place() {
+  if (!canPlay()) return;
+  if (getRow(S.board, focusCol) === -1) return;
+  if (me === 1) {
+    hostMove(1, focusCol);
+  } else {
+    pending = true;
+    sess.send("move", { col: focusCol });
+    setTimeout(() => { if (pending) { pending = false; render(); } }, 4000);   // safety net
+    render();
+  }
+}
+
+function requestRematch() {
+  if (!S || S.status === "playing" || peerLeft || !linked || S.rematch[me]) return;
+  if (me === 1) hostRematch(1);
+  else sess.send("rematch");
+}
+
+function setFocus(col) {
+  focusCol = Math.max(0, Math.min(COLS - 1, col));
+  render();
+}
+
+againEl.addEventListener("click", () => { unlockAudio(); requestRematch(); });
+
+document.addEventListener("keydown", e => {
+  unlockAudio();
+  ensureTTS();
+  if (e.key === "Escape") { sess.leave(); return; }
+  if (S && S.status !== "playing") {
+    if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) requestRematch();
+    return;
+  }
+  switch (e.key) {
+    case "ArrowLeft":  e.preventDefault(); setFocus(focusCol - 1); break;
+    case "ArrowRight": e.preventDefault(); setFocus(focusCol + 1); break;
+    case "ArrowUp":    e.preventDefault(); break;
+    case "ArrowDown":  e.preventDefault(); place(); break;
+    case "Enter":
+    case " ":          place(); break;
+  }
+});
+
+// Phones: first touch unlocks audio
+document.addEventListener("pointerdown", () => { unlockAudio(); ensureTTS(); });
+
+// ── Gamepad ───────────────────────────────────────────────────────────────
+let _gpPrev = [];
+function pollGamepad() {
+  const gp = navigator.getGamepads?.()[0];
+  if (gp) {
+    unlockAudio();
+    const hit = i => gp.buttons[i]?.pressed && !_gpPrev[i];
+    if (S && S.status !== "playing") {
+      if (hit(9)) sess.leave();
+      else if ([0,1,2,3,12,13,14,15].some(hit)) requestRematch();
+    } else {
+      if (hit(14) || (gp.axes[0] < -.5 && !_gpPrev.axL)) setFocus(focusCol - 1);
+      if (hit(15) || (gp.axes[0] >  .5 && !_gpPrev.axR)) setFocus(focusCol + 1);
+      if (hit(13) || (gp.axes[1] >  .5 && !_gpPrev.axD)) place();
+      if (hit(0))  place();
+      if (hit(1) || hit(9)) sess.leave();
+    }
+    _gpPrev = gp.buttons.map(b => b.pressed);
+    _gpPrev.axL = gp.axes[0] < -.5;
+    _gpPrev.axR = gp.axes[0] >  .5;
+    _gpPrev.axD = gp.axes[1] >  .5;
+  }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
+// ── Online session ────────────────────────────────────────────────────────
+sess = EldaOnline.connect({
+  // host: sent to the guest on every (re)join
+  getSnapshot: () => S,
+
+  // guest: authoritative state from the host
+  onSnapshot: (snap) => { if (validSnapshot(snap)) adopt(snap); },
+
+  // either side: the peer's intents
+  onMessage: (type, payload) => {
+    if (me !== 1) return;                       // only the host applies rules
+    let ok = true;
+    if (type === "move")    ok = hostMove(2, payload && payload.col);
+    if (type === "rematch") hostRematch(2);
+    if (!ok) sess.publishSnapshot(S);           // rejected: resync the guest
+  },
+
+  onLink: (status) => {
+    linked = status === "up";
+    if (linked) everLinked = true;
+    render();
+  },
+
+  onPeerLeft: () => { peerLeft = true; render(); },
+});
+
+me = sess.role === "host" ? 1 : 2;
+document.documentElement.style.setProperty("--me", me === 1 ? "var(--p1)" : "var(--p2)");
+if (me === 1) S = newRound(1);   // host moves first in round 1; guest waits for a snapshot
+render();
+</script>
+</body>
+</html>

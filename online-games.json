@@ -1,0 +1,15 @@
+{
+  "sdk": 1,
+  "games": [
+    {
+      "id": "connect4",
+      "label":       { "en": "Connect 4", "fr": "Puissance 4", "nl": "Vier op een rij" },
+      "description": { "en": "Play Connect 4 against the person at the TV",
+                       "fr": "Jouez à Puissance 4 contre la personne devant la TV",
+                       "nl": "Speel Vier op een rij tegen de persoon voor de TV" },
+      "path": "online/connect4/index.html",
+      "players": 2,
+      "sdk": 1
+    }
+  ]
+}

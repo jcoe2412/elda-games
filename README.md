@@ -16,9 +16,18 @@ EldaRemote companion app fetches it to let an admin pick which games are
 enabled on a given EldaTV device. Adding a new game means adding its folder
 here *and* an entry in `games.json`.
 
+## Online (2-player) games
+
+[`online/`](online/README.md) holds games played by two people on two devices —
+one on the EldaRemote companion app, one on EldaTV. They are listed by
+[`online-games.json`](online-games.json) (not `games.json`), can only be
+started from the companion app, and need no code change in EldaTV or
+EldaRemote to add: see [`online/README.md`](online/README.md).
+
 ## Games
 
 - `tictactoe/`
 - `simon/`
 - `connect4/`
 - `memory/`
+- `online/connect4/` (2-player, see above)
