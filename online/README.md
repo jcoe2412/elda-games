@@ -45,7 +45,7 @@ The parent opens `<portal_url>/online/<id>/index.html?…` with:
 | `role` | `host` or `guest` |
 | `sid`  | session id (shared by both players) |
 | `lang` | `en` / `fr` / `nl` — see [`../PARAMS.md`](../PARAMS.md) |
-| `voice`| `0` = no text-to-speech (the phone app sends this) |
+| `voice`| ignored — online games never use text-to-speech (see below) |
 
 ## The SDK
 
@@ -81,6 +81,14 @@ s.leave();                 // ask the parent to end the session (Escape / quit)
 * **Local development:** open the game outside any parent, in two tabs of one
   browser — `index.html?role=host&sid=x` and `index.html?role=guest&sid=x` —
   and the SDK relays between them with a `BroadcastChannel`.
+* **No text-to-speech.** Online games are played during a video call, so they
+  must not speak (sound effects are fine). Text-to-speech is for the local,
+  single-player games only.
+* **Show the opponent's choice live.** Send a lightweight `send("focus", …)`
+  message whenever the player moves their cursor and draw the opponent's, so
+  each side sees the other's selection *before* it is validated (Connect 4
+  does this; throttle to ~15 messages/s). Games on touch screens should use a
+  two-step *select, then confirm* interaction so there is something to show.
 * Keep TV input working (keyboard arrows/Enter/Escape and the gamepad, as in
   the single-player games) and make the layout work on a phone in portrait
   too: the same page is used on both.
@@ -153,7 +161,7 @@ and `event.origin === <portal origin>`, and posts with an explicit
 
 1. Copy `connect4/` to `online/<id>/`, keep the SDK `<script>` line, replace the rules/UI.
 2. Put **all** game state in what `getSnapshot()` returns.
-3. Support `?lang=` (en/fr/nl) and `?voice=0`; work on a 360 px-wide phone *and* a 1080p TV.
+3. Support `?lang=` (en/fr/nl); no speech; work on a 360 px-wide phone *and* a 1080p TV.
 4. Add the entry to `online-games.json`.
 5. Test locally in two tabs (see above), then push to `main` — GitHub Pages
    publishes it and the companion app lists it on its next visit to the Games tab.

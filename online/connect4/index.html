@@ -12,6 +12,7 @@
     --p1:     #4488ff;   /* host  — moves first in round 1 */
     --p2:     #ff6633;   /* guest */
     --me:     var(--p1);
+    --opp:    var(--p2);   /* the other player's colour */
     --green:  #22bb33;
     --red:    #dd2200;
     --yellow: #ddaa00;
@@ -76,6 +77,7 @@
   }
   .col-arrow.active      { opacity: 1; }
   .col-arrow.column-full { color: var(--red); }
+  .col-arrow.opp         { opacity: 1; color: var(--opp); }   /* where the opponent is about to drop */
 
   #board {
     display: grid;
@@ -96,7 +98,8 @@
   }
   .cell.p1 { background: var(--p1); }
   .cell.p2 { background: var(--p2); }
-  .cell.ghost { background: color-mix(in srgb, var(--me) 28%, transparent); }
+  .cell.ghost     { background: rgba(128,128,128,.28); background: color-mix(in srgb, var(--me)  28%, transparent); }
+  .cell.ghost-opp { background: rgba(128,128,128,.28); background: color-mix(in srgb, var(--opp) 28%, transparent); }
   .cell.p1.win { filter: brightness(1.5); box-shadow: 0 0 20px 5px var(--p1); }
   .cell.p2.win { filter: brightness(1.5); box-shadow: 0 0 20px 5px var(--p2); }
 
@@ -119,7 +122,6 @@
   }
   #again:disabled { background: #333; color: var(--dim); cursor: default; }
   .hidden { display: none !important; }
-  @media (hover: none) { #hint { display: none; } }   /* touch phones: no keyboard hints */
 </style>
 </head>
 <body>
@@ -166,6 +168,7 @@ const T = {
     score:      "You {me} – {opp} Opponent",
     hint:       "← →  move   Enter / A  drop   Esc  quit",
     hintOver:   "Enter / A  play again   Esc  quit",
+    hintTouch:  "Tap a column to select it, tap it again to drop",
   },
   fr: {
     title:      "Puissance 4",
@@ -186,6 +189,7 @@ const T = {
     score:      "Vous {me} – {opp} Adversaire",
     hint:       "← →  déplacer   Entrée / A  poser   Échap  quitter",
     hintOver:   "Entrée / A  rejouer   Échap  quitter",
+    hintTouch:  "Touchez une colonne pour la choisir, touchez-la à nouveau pour poser",
   },
   nl: {
     title:      "Vier op een rij",
@@ -206,57 +210,9 @@ const T = {
     score:      "U {me} – {opp} Tegenstander",
     hint:       "← →  bewegen   Enter / A  plaatsen   Esc  stoppen",
     hintOver:   "Enter / A  opnieuw   Esc  stoppen",
+    hintTouch:  "Tik op een kolom om te kiezen, tik nogmaals om te plaatsen",
   },
 }[LANG];
-
-// ── Text-to-speech (TV only: the phone app passes ?voice=0) ───────────────
-const VOICE = PARAMS.get("voice") !== "0";
-const SPEECH_LANG = { en: "en-US", fr: "fr-FR", nl: "nl-NL" }[LANG];
-
-const TV = {
-  en: { yourTurn: "It's your turn!",   youWin: "Congratulations, you win!",
-        youLose: "You lose. Better luck next time!", draw: "It's a draw!" },
-  fr: { yourTurn: "C'est votre tour !", youWin: "Félicitations, vous gagnez !",
-        youLose: "Vous perdez. Bonne chance la prochaine fois !", draw: "C'est une égalité !" },
-  nl: { yourTurn: "Het is uw beurt!",   youWin: "Gefeliciteerd, u wint!",
-        youLose: "U verliest. Veel succes de volgende keer!", draw: "Het is gelijkspel!" },
-}[LANG];
-
-let _voice = null, _ttsReady = false;
-
-function _pickVoice() {
-  const vv = window.speechSynthesis.getVoices();
-  _voice = vv.find(v => v.lang === SPEECH_LANG  && v.localService)
-        || vv.find(v => v.lang.startsWith(LANG) && v.localService)
-        || vv.find(v => v.lang === SPEECH_LANG)
-        || vv.find(v => v.lang.startsWith(LANG))
-        || null;
-}
-
-function ensureTTS() {
-  if (!VOICE || _ttsReady || !window.speechSynthesis) return;
-  _ttsReady = true;
-  const init = () => {
-    _pickVoice();
-    for (const text of Object.values(TV)) {
-      const u = new SpeechSynthesisUtterance(text);
-      if (_voice) u.voice = _voice;
-      u.lang = SPEECH_LANG; u.volume = 0; u.rate = 1.5;
-      window.speechSynthesis.speak(u);
-    }
-  };
-  if (window.speechSynthesis.getVoices().length) init();
-  else window.speechSynthesis.addEventListener('voiceschanged', init, { once: true });
-}
-
-function speak(text) {
-  if (!VOICE || !window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
-  const u = new SpeechSynthesisUtterance(text);
-  if (_voice) u.voice = _voice;
-  u.lang = SPEECH_LANG; u.rate = 1.05; u.volume = 1.0;
-  window.speechSynthesis.speak(u);
-}
 
 // ── Audio ─────────────────────────────────────────────────────────────────
 let audioCtx = null;
@@ -344,6 +300,11 @@ let me = 1;              // my piece
 let focusCol = 3;
 let linked = false, everLinked = false, peerLeft = false;
 let pending = false;     // guest: move sent, snapshot not back yet
+let oppFocus = null;     // column the opponent's cursor is on while they choose
+let armed = null;        // touch: column selected by a first tap (second tap drops)
+const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+const FOCUS_MIN_MS = 60; // at most one cursor update per 60 ms
+let lastFocusSent = 0, focusTimer = null;
 
 // ── DOM ───────────────────────────────────────────────────────────────────
 const statusEl   = document.getElementById("status");
@@ -360,8 +321,20 @@ for (let c = 0; c < COLS; c++) {
   selectorEl.appendChild(el);
 }
 
-function canPlay() {
-  return !!S && linked && !peerLeft && !pending && S.status === "playing" && S.turn === me;
+function myTurn() {
+  return !!S && linked && !peerLeft && S.status === "playing" && S.turn === me;
+}
+function canPlay() { return myTurn() && !pending; }
+
+// Live cursor: tell the opponent which column I am hovering, so they see my
+// choice before I drop. Only while it is my turn; throttled.
+function sendFocus(force) {
+  if (!myTurn()) return;
+  clearTimeout(focusTimer);
+  const wait = force ? 0 : FOCUS_MIN_MS - (Date.now() - lastFocusSent);
+  if (wait > 0) { focusTimer = setTimeout(() => sendFocus(true), wait); return; }
+  lastFocusSent = Date.now();
+  sess.send("focus", { col: focusCol });
 }
 
 function setStatus(text, cls) {
@@ -373,6 +346,9 @@ function render() {
   boardEl.innerHTML = "";
   const winSet = new Set((S && S.winLine || []).map(([r, c]) => `${r},${c}`));
   const ghostRow = (S && canPlay()) ? getRow(S.board, focusCol) : -1;
+  const oppShow = oppFocus !== null && !!S && linked && !peerLeft
+                  && S.status === "playing" && S.turn === 3 - me;
+  const oppRow = oppShow ? getRow(S.board, oppFocus) : -1;
 
   for (let r = 0; r < ROWS; r++) {
     for (let c = 0; c < COLS; c++) {
@@ -384,8 +360,15 @@ function render() {
         if (winSet.has(`${r},${c}`)) cell.classList.add("win");
       } else if (r === ghostRow && c === focusCol) {
         cell.classList.add("ghost");
+      } else if (oppShow && r === oppRow && c === oppFocus) {
+        cell.classList.add("ghost-opp");
       }
-      cell.addEventListener("click", () => { focusCol = c; place(); });
+      cell.addEventListener("click", () => {
+        // Touch: the first tap only selects (the opponent sees it), a second tap drops.
+        if (TOUCH && canPlay() && armed !== c) { armed = c; setFocus(c); return; }
+        focusCol = c;
+        place();
+      });
       boardEl.appendChild(cell);
     }
   }
@@ -394,6 +377,7 @@ function render() {
     const el = document.getElementById(`arrow-${c}`);
     el.classList.toggle("active", c === focusCol && !!S && canPlay());
     el.classList.toggle("column-full", !!S && c === focusCol && getRow(S.board, c) === -1);
+    el.classList.toggle("opp", oppShow && c === oppFocus);
   }
 
   renderStatus();
@@ -402,7 +386,7 @@ function render() {
 function renderStatus() {
   const over = !!S && S.status !== "playing";
   document.getElementById("me-text").textContent = me === 1 ? T.blue : T.orange;
-  document.getElementById("hint").textContent = over ? T.hintOver : T.hint;
+  document.getElementById("hint").textContent = TOUCH ? (over ? "" : T.hintTouch) : (over ? T.hintOver : T.hint);
   document.getElementById("score").textContent = S
     ? T.score.replace("{me}", S.score[me]).replace("{opp}", S.score[3 - me]) : "";
 
@@ -436,25 +420,32 @@ function adopt(next) {
   const prev = S;
   S = next;
   pending = false;
+  armed = null;
+  oppFocus = null;             // the opponent re-announces its cursor when its turn starts
   const newRoundStarted = !prev || (prev.status !== "playing" && next.status === "playing");
   if (newRoundStarted) focusCol = 3;
-
-  if (prev && pieces(next) > pieces(prev)) playDrop();
-  if (next.status !== "playing" && (!prev || prev.status === "playing")) {
-    if (next.status === "draw")       { playDraw(); speak(TV.draw); }
-    else if (next.winner === me)      { playWin();  speak(TV.youWin); }
-    else                              { playLose(); speak(TV.youLose); }
-  } else if (next.status === "playing" && next.turn === me
-             && (!prev || prev.status !== "playing" || prev.turn !== me)) {
-    speak(TV.yourTurn);
-  }
   render();
+
+  // Sound effects last and off this call stack: nothing audio may hold up drawing
+  // the board (or, on the host, sending the snapshot - hostCommit publishes before
+  // it calls adopt). No text-to-speech in online games: they are played during a
+  // video call.
+  setTimeout(() => {
+    if (prev && pieces(next) > pieces(prev)) playDrop();
+    if (next.status !== "playing" && (!prev || prev.status === "playing")) {
+      if (next.status === "draw")       playDraw();
+      else if (next.winner === me)      playWin();
+      else                              playLose();
+    }
+  }, 0);
+
+  if (myTurn()) sendFocus(true);
 }
 
 // ── Host: the rules ───────────────────────────────────────────────────────
 function hostCommit(next) {
+  sess.publishSnapshot(next);   // first: nothing local may delay the guest's update
   adopt(next);
-  sess.publishSnapshot(next);
 }
 
 function hostMove(piece, col) {
@@ -512,13 +503,13 @@ function requestRematch() {
 function setFocus(col) {
   focusCol = Math.max(0, Math.min(COLS - 1, col));
   render();
+  sendFocus();
 }
 
 againEl.addEventListener("click", () => { unlockAudio(); requestRematch(); });
 
 document.addEventListener("keydown", e => {
   unlockAudio();
-  ensureTTS();
   if (e.key === "Escape") { sess.leave(); return; }
   if (S && S.status !== "playing") {
     if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) requestRematch();
@@ -535,7 +526,7 @@ document.addEventListener("keydown", e => {
 });
 
 // Phones: first touch unlocks audio
-document.addEventListener("pointerdown", () => { unlockAudio(); ensureTTS(); });
+document.addEventListener("pointerdown", () => unlockAudio());
 
 // ── Gamepad ───────────────────────────────────────────────────────────────
 let _gpPrev = [];
@@ -573,6 +564,11 @@ sess = EldaOnline.connect({
 
   // either side: the peer's intents
   onMessage: (type, payload) => {
+    if (type === "focus") {                     // the opponent's live cursor
+      const col = payload && payload.col;
+      if (Number.isInteger(col) && col >= 0 && col < COLS) { oppFocus = col; render(); }
+      return;
+    }
     if (me !== 1) return;                       // only the host applies rules
     let ok = true;
     if (type === "move")    ok = hostMove(2, payload && payload.col);
@@ -582,15 +578,20 @@ sess = EldaOnline.connect({
 
   onLink: (status) => {
     linked = status === "up";
-    if (linked) everLinked = true;
+    if (linked) everLinked = true; else oppFocus = null;
     render();
+    if (linked) sendFocus(true);
   },
+
+  // the snapshot just went out (SDK), and it reset the guest's view of my cursor
+  onPeerJoined: () => sendFocus(true),
 
   onPeerLeft: () => { peerLeft = true; render(); },
 });
 
 me = sess.role === "host" ? 1 : 2;
-document.documentElement.style.setProperty("--me", me === 1 ? "var(--p1)" : "var(--p2)");
+document.documentElement.style.setProperty("--me",  me === 1 ? "var(--p1)" : "var(--p2)");
+document.documentElement.style.setProperty("--opp", me === 1 ? "var(--p2)" : "var(--p1)");
 if (me === 1) S = newRound(1);   // host moves first in round 1; guest waits for a snapshot
 render();
 </script>
