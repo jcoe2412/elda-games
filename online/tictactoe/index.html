@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title>Tic-Tac-Toe — online</title>
+<style>
+  :root {
+    --bg:     #0e0e1c;
+    --card:   #14142a;
+    --border: #22224a;
+    --x:      #4488ff;   /* host  — moves first in round 1 */
+    --o:      #ff6633;   /* guest */
+    --me:     var(--x);
+    --opp:    var(--o);  /* the other player's colour */
+    --green:  #22bb33;
+    --red:    #dd2200;
+    --yellow: #ddaa00;
+    --dim:    #777;
+    --text:   #e0e0e0;
+    /* TV (landscape): cell sized by height */
+    --cell: min(15vh, 14vw);
+    --gap:  12px;
+    --r:    16px;
+  }
+  /* Phone (portrait): cell sized by width */
+  @media (max-aspect-ratio: 1/1) {
+    :root {
+      --gap:  8px;
+      --cell: min(calc((100vw - 32px - 2 * var(--gap)) / 3), 16vh);
+    }
+    h1 { font-size: 1.6rem !important; }
+    #status { font-size: 1.3rem !important; min-height: 1.8rem !important; }
+    #meta { font-size: .85rem !important; }
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none; -webkit-user-select: none;
+    touch-action: manipulation;
+  }
+  #game {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 1rem;
+    padding: 0.5rem;
+  }
+  h1 { font-size: 3rem; font-weight: 900; letter-spacing: .06em; }
+  #status {
+    font-size: 2.2rem; font-weight: 700; min-height: 2.7rem;
+    text-align: center; letter-spacing: .02em;
+    transition: color .25s;
+  }
+  #status.your-turn { color: var(--me); }
+  #status.waiting   { color: var(--yellow); }
+  #status.win       { color: var(--green); }
+  #status.lose      { color: var(--red); }
+  #status.draw      { color: var(--dim); }
+  #status.idle      { color: var(--dim); }
+
+  #board {
+    display: grid;
+    grid-template-columns: repeat(3, var(--cell));
+    grid-template-rows:    repeat(3, var(--cell));
+    gap: var(--gap);
+  }
+  .cell {
+    width: var(--cell); height: var(--cell);
+    background: var(--card);
+    border: 3px solid var(--border);
+    border-radius: var(--r);
+    display: flex; align-items: center; justify-content: center;
+    font-size: calc(var(--cell) * 0.58);
+    font-weight: 900;
+    cursor: pointer;
+    transition: border-color .12s, background .12s;
+  }
+  .cell[data-mark="X"] { color: var(--x); }
+  .cell[data-mark="O"] { color: var(--o); }
+  /* my cursor, with a ghost of the mark I am about to place */
+  .cell.focused { border-color: var(--me); background: #18184a; }
+  .cell:not([data-mark]).focused::after {
+    content: attr(data-ghost);
+    color: var(--me); opacity: .3;
+  }
+  /* the opponent's cursor, live, before they validate */
+  .cell.opp-focus { border-color: var(--opp); border-style: dashed; }
+  .cell:not([data-mark]).opp-focus::after {
+    content: attr(data-opp-ghost);
+    color: var(--opp); opacity: .3;
+  }
+  .cell.win-cell {
+    background: rgba(34,187,51,.12);
+    border-color: var(--green);
+    box-shadow: 0 0 14px rgba(34,187,51,.35);
+  }
+
+  #meta {
+    display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap; justify-content: center;
+    color: var(--dim); font-size: 0.95rem;
+  }
+  #me-badge {
+    display: inline-flex; align-items: center; gap: .5rem;
+    padding: .25rem .75rem;
+    border: 1px solid #333;
+    border-radius: 99px;
+  }
+  #me-dot { width: .9em; height: .9em; border-radius: 50%; background: var(--me); }
+  #again {
+    font: inherit; font-size: 1.3rem; font-weight: 700;
+    min-height: 48px; padding: .5rem 1.8rem;
+    border: 0; border-radius: 99px;
+    background: var(--me); color: #fff; cursor: pointer;
+  }
+  #again:disabled { background: #333; color: var(--dim); cursor: default; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="game">
+  <h1 id="title-el"></h1>
+  <div id="status" class="idle"></div>
+  <div id="board"></div>
+  <div id="meta">
+    <span id="me-badge"><span id="me-dot"></span><span id="me-text"></span></span>
+    <span id="score"></span>
+    <span id="hint"></span>
+  </div>
+  <button id="again" class="hidden"></button>
+</div>
+
+<script src="../elda-online.js"></script>
+<script>
+// ── i18n ──────────────────────────────────────────────────────────────────
+// ?lang=en (default) | fr | nl.  No text-to-speech: online games run during a video call.
+const PARAMS = new URLSearchParams(location.search);
+const LANG = (() => {
+  const l = (PARAMS.get("lang") || "en").split(/[-_]/)[0].toLowerCase();
+  return ["fr", "nl"].includes(l) ? l : "en";
+})();
+
+const T = {
+  en: {
+    title:      "Tic-Tac-Toe",
+    yourTurn:   "Your turn",
+    oppTurn:    "Opponent's turn",
+    youWin:     "You win! 🎉",
+    youLose:    "You lose",
+    draw:       "Draw!",
+    again:      "Play again",
+    waitAgain:  "Waiting for your opponent…",
+    oppAgain:   "Your opponent wants a rematch",
+    waitOpp:    "Waiting for your opponent…",
+    connecting: "Connecting…",
+    lost:       "Connection lost — waiting…",
+    oppLeft:    "Your opponent left the game",
+    playX:      "You play X",
+    playO:      "You play O",
+    score:      "You {me} – {opp} Opponent",
+    hint:       "↑ ↓ ← →  move   Enter / A  place   Esc  quit",
+    hintOver:   "Enter / A  play again   Esc  quit",
+    hintTouch:  "Tap a square to select it, tap it again to place your mark",
+  },
+  fr: {
+    title:      "Tic-Tac-Toe",
+    yourTurn:   "Votre tour",
+    oppTurn:    "Tour de l'adversaire",
+    youWin:     "Vous gagnez ! 🎉",
+    youLose:    "Vous perdez",
+    draw:       "Égalité !",
+    again:      "Rejouer",
+    waitAgain:  "En attente de votre adversaire…",
+    oppAgain:   "Votre adversaire veut rejouer",
+    waitOpp:    "En attente de votre adversaire…",
+    connecting: "Connexion…",
+    lost:       "Connexion perdue — en attente…",
+    oppLeft:    "Votre adversaire a quitté la partie",
+    playX:      "Vous jouez X",
+    playO:      "Vous jouez O",
+    score:      "Vous {me} – {opp} Adversaire",
+    hint:       "↑ ↓ ← →  déplacer   Entrée / A  placer   Échap  quitter",
+    hintOver:   "Entrée / A  rejouer   Échap  quitter",
+    hintTouch:  "Touchez une case pour la choisir, touchez-la à nouveau pour placer votre marque",
+  },
+  nl: {
+    title:      "Tic-Tac-Toe",
+    yourTurn:   "Uw beurt",
+    oppTurn:    "Beurt van de tegenstander",
+    youWin:     "U wint! 🎉",
+    youLose:    "U verliest",
+    draw:       "Gelijkspel!",
+    again:      "Nog een keer",
+    waitAgain:  "Wachten op uw tegenstander…",
+    oppAgain:   "Uw tegenstander wil opnieuw spelen",
+    waitOpp:    "Wachten op uw tegenstander…",
+    connecting: "Verbinden…",
+    lost:       "Verbinding verbroken — wachten…",
+    oppLeft:    "Uw tegenstander heeft het spel verlaten",
+    playX:      "U speelt X",
+    playO:      "U speelt O",
+    score:      "U {me} – {opp} Tegenstander",
+    hint:       "↑ ↓ ← →  bewegen   Enter / A  plaatsen   Esc  stoppen",
+    hintOver:   "Enter / A  opnieuw   Esc  stoppen",
+    hintTouch:  "Tik op een vakje om het te kiezen, tik nogmaals om uw teken te plaatsen",
+  },
+}[LANG];
+
+// ── Audio (sound effects only) ────────────────────────────────────────────
+let audioCtx = null;
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function unlockAudio() { if (audioCtx?.state === "suspended") audioCtx.resume(); }
+
+function beep(freq, type, duration, volume = 0.35, startDelay = 0) {
+  try {
+    const ctx = getCtx(), osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = type; osc.frequency.value = freq;
+    const t = ctx.currentTime + startDelay;
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    osc.start(t); osc.stop(t + duration);
+  } catch (_) {}
+}
+function playPlace() { beep(440, "triangle", 0.09, 0.35); }
+function playWin()   { [[523,0],[659,.14],[784,.28],[1046,.42]].forEach(([f,d]) => beep(f,"sine",.28,.4,d)); }
+function playLose()  { beep(200, "sawtooth", .35, .25, 0); beep(160, "sawtooth", .45, .25, .35); }
+function playDraw()  { beep(350, "sine", .2, .3, 0); beep(350, "sine", .2, .3, .28); }
+
+// ── Rules (pure) ──────────────────────────────────────────────────────────
+const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+
+// null while the game goes on, {winner, line} for a win, {winner:0} for a draw
+function checkWinner(b) {
+  for (const line of LINES) {
+    const [a, c, d] = line;
+    if (b[a] && b[a] === b[c] && b[a] === b[d]) return { winner: b[a], line };
+  }
+  if (b.every(v => v !== 0)) return { winner: 0 };
+  return null;
+}
+
+// ── Game state ────────────────────────────────────────────────────────────
+// The HOST owns the rules. This object is exactly what the host publishes as
+// a snapshot; the guest only ever renders the last snapshot it received.
+//   host = piece 1 (X, blue), guest = piece 2 (O, orange).
+const EPOCH = Math.random().toString(36).slice(2, 10);   // host: identifies this page load
+
+function newRound(starter, score) {
+  return {
+    board: Array(9).fill(0), turn: starter, starter,
+    status: "playing",            // "playing" | "won" | "draw"
+    winner: 0, winLine: null,
+    score: score || { 1: 0, 2: 0 },
+    rematch: { 1: false, 2: false },
+    epoch: EPOCH, rev: 0,         // rev is bumped on every host publish (see hostCommit)
+  };
+}
+
+function validSnapshot(s) {
+  return !!s && Array.isArray(s.board) && s.board.length === 9 && s.board.every(v => v === 0 || v === 1 || v === 2)
+    && (s.turn === 1 || s.turn === 2)
+    && ["playing", "won", "draw"].includes(s.status)
+    && s.score && s.rematch;
+}
+
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const pieces = (s) => s.board.filter(Boolean).length;
+
+let S = null;            // current state (host: authoritative, guest: last snapshot)
+let sess = null;         // EldaOnline session
+let me = 1;              // my piece
+let focus = 4;           // my cursor (0..8), starts on the centre
+let linked = false, everLinked = false, peerLeft = false;
+let pending = false;     // guest: move sent, the host has not answered yet
+let pendingRev = null;   // guest: snapshot revision the pending move was based on
+let pendingToken = 0;    // guest: identifies the latest send, so old safety timers can't clear a newer one
+let oppFocus = null;     // the opponent's cursor while they choose
+let armed = null;        // touch: square selected by a first tap (second tap places)
+const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+const FOCUS_MIN_MS = 60; // at most one cursor update per 60 ms
+let lastFocusSent = 0, focusTimer = null;
+
+// ── DOM ───────────────────────────────────────────────────────────────────
+const statusEl = document.getElementById("status");
+const boardEl  = document.getElementById("board");
+const againEl  = document.getElementById("again");
+document.getElementById("title-el").textContent = T.title;
+
+const MARK = { 1: "X", 2: "O" };
+
+function myTurn() {
+  return !!S && linked && !peerLeft && S.status === "playing" && S.turn === me;
+}
+function canPlay() { return myTurn() && !pending; }
+
+// Live cursor: tell the opponent which square I am hovering, before I place.
+function sendFocus(force) {
+  if (!myTurn()) return;
+  clearTimeout(focusTimer);
+  const wait = force ? 0 : FOCUS_MIN_MS - (Date.now() - lastFocusSent);
+  if (wait > 0) { focusTimer = setTimeout(() => sendFocus(true), wait); return; }
+  lastFocusSent = Date.now();
+  sess.send("focus", { cell: focus });
+}
+
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className   = cls;
+}
+
+function render() {
+  boardEl.innerHTML = "";
+  const winSet = new Set((S && S.winLine) || []);
+  const showMine = !!S && canPlay();
+  const showOpp = oppFocus !== null && !!S && linked && !peerLeft
+                  && S.status === "playing" && S.turn === 3 - me;
+
+  for (let i = 0; i < 9; i++) {
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    const v = S ? S.board[i] : 0;
+    if (v) {
+      cell.dataset.mark = MARK[v];
+      if (winSet.has(i)) cell.classList.add("win-cell");
+    } else {
+      cell.dataset.ghost = MARK[me];
+      cell.dataset.oppGhost = MARK[3 - me];
+      if (showMine && i === focus) cell.classList.add("focused");
+      if (showOpp && i === oppFocus) cell.classList.add("opp-focus");
+    }
+    cell.addEventListener("click", () => {
+      // Touch: the first tap only selects (the opponent sees it), a second tap places.
+      if (TOUCH && canPlay() && S.board[i] === 0 && armed !== i) { armed = i; setFocus(i); return; }
+      focus = i;
+      place();
+    });
+    boardEl.appendChild(cell);
+  }
+  renderStatus();
+}
+
+function renderStatus() {
+  const over = !!S && S.status !== "playing";
+  document.getElementById("me-text").textContent = me === 1 ? T.playX : T.playO;
+  document.getElementById("hint").textContent = TOUCH ? (over ? "" : T.hintTouch) : (over ? T.hintOver : T.hint);
+  document.getElementById("score").textContent = S
+    ? T.score.replace("{me}", S.score[me]).replace("{opp}", S.score[3 - me]) : "";
+
+  let again = false, againText = T.again, againOff = false;
+  if (peerLeft) {
+    setStatus(T.oppLeft, "lose");
+  } else if (!linked) {
+    setStatus(everLinked ? T.lost : (me === 1 ? T.waitOpp : T.connecting), "waiting");
+  } else if (!S) {
+    setStatus(T.connecting, "waiting");
+  } else if (S.status === "playing") {
+    if (S.turn === me) setStatus(T.yourTurn, "your-turn");
+    else setStatus(T.oppTurn, "waiting");
+  } else {
+    if (S.status === "draw")            setStatus(T.draw, "draw");
+    else if (S.winner === me)           setStatus(T.youWin, "win");
+    else                                setStatus(T.youLose, "lose");
+    again = true;
+    if (S.rematch[me])            { againText = T.waitAgain; againOff = true; }
+    else if (S.rematch[3 - me])   { againText = T.again + " — " + T.oppAgain; }
+  }
+  againEl.classList.toggle("hidden", !again);
+  againEl.textContent = againText;
+  againEl.disabled = againOff;
+}
+
+// ── State changes (both sides funnel through adopt) ───────────────────────
+function adopt(next) {
+  const prev = S;
+  S = next;
+  // A snapshot that is not newer than the one my pending move was based on (a
+  // duplicate answer to a join, ...) says nothing about that move: keep waiting.
+  if (pending && !(prev && prev.epoch === next.epoch && next.rev <= pendingRev)) pending = false;
+  armed = null;
+  oppFocus = null;             // the opponent re-announces its cursor when its turn starts
+  const newRoundStarted = !prev || (prev.status !== "playing" && next.status === "playing");
+  if (newRoundStarted) focus = 4;
+  render();
+
+  // Sound effects last and off this call stack: nothing audio may hold up drawing
+  // the board (or, on the host, sending the snapshot — hostCommit publishes first).
+  setTimeout(() => {
+    if (prev && pieces(next) > pieces(prev)) playPlace();
+    if (next.status !== "playing" && (!prev || prev.status === "playing")) {
+      if (next.status === "draw")       playDraw();
+      else if (next.winner === me)      playWin();
+      else                              playLose();
+    }
+  }, 0);
+
+  if (myTurn()) sendFocus(true);
+}
+
+// ── Host: the rules ───────────────────────────────────────────────────────
+function hostCommit(next) {
+  next.epoch = EPOCH;
+  next.rev = (S && S.rev || 0) + 1;
+  sess.publishSnapshot(next);   // first: nothing local may delay the guest's update
+  adopt(next);
+}
+
+// Answer a guest that is out of step (rejected move, "sync" request): same
+// state, new revision, so the guest's pending move is released.
+function hostResync() {
+  S.rev = (S.rev || 0) + 1;
+  sess.publishSnapshot(S);
+}
+
+function hostMove(piece, cell, ply) {
+  if (!S || S.status !== "playing" || S.turn !== piece) return false;
+  if (!Number.isInteger(cell) || cell < 0 || cell > 8 || S.board[cell] !== 0) return false;
+  // The guest states how many marks were on the board when it chose (ply). A
+  // duplicate or delayed intent carries an old ply and is refused.
+  if (ply !== undefined && ply !== pieces(S)) return false;
+
+  const next = clone(S);
+  next.board[cell] = piece;
+  const result = checkWinner(next.board);
+  if (result) {
+    next.status  = result.winner ? "won" : "draw";
+    next.winner  = result.winner;
+    next.winLine = result.line || null;
+    if (result.winner) next.score[result.winner] += 1;
+  } else {
+    next.turn = 3 - piece;
+  }
+  hostCommit(next);
+  return true;
+}
+
+function hostRematch(piece) {
+  if (!S || S.status === "playing") return;
+  const next = clone(S);
+  next.rematch[piece] = true;
+  if (next.rematch[1] && next.rematch[2]) {
+    hostCommit(newRound(3 - S.starter, next.score));   // the starter alternates each round
+  } else {
+    hostCommit(next);
+  }
+}
+
+// ── Local input ───────────────────────────────────────────────────────────
+function place() {
+  if (!canPlay()) return;
+  if (S.board[focus] !== 0) return;
+  if (me === 1) {
+    hostMove(1, focus);
+  } else {
+    pending = true;
+    pendingRev = S.rev;
+    const token = ++pendingToken;
+    sess.send("move", { cell: focus, ply: pieces(S) });
+    // Safety net if the host never answers (message lost): release input, and ask
+    // for the current state. A late duplicate of the lost move is harmless: its
+    // ply no longer matches.
+    setTimeout(() => {
+      if (pending && token === pendingToken) { pending = false; sess.send("sync"); render(); }
+    }, 4000);
+    render();
+  }
+}
+
+function requestRematch() {
+  if (!S || S.status === "playing" || peerLeft || !linked || S.rematch[me]) return;
+  if (me === 1) hostRematch(1);
+  else sess.send("rematch");
+}
+
+function moveFocus(dx, dy) {
+  const col = Math.max(0, Math.min(2, (focus % 3) + dx));
+  const row = Math.max(0, Math.min(2, Math.floor(focus / 3) + dy));
+  setFocus(row * 3 + col);
+}
+
+function setFocus(i) {
+  focus = Math.max(0, Math.min(8, i));
+  render();
+  sendFocus();
+}
+
+againEl.addEventListener("click", () => { unlockAudio(); requestRematch(); });
+
+document.addEventListener("keydown", e => {
+  unlockAudio();
+  if (e.key === "Escape") { sess.leave(); return; }
+  if (S && S.status !== "playing") {
+    if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) requestRematch();
+    return;
+  }
+  switch (e.key) {
+    case "ArrowLeft":  e.preventDefault(); moveFocus(-1, 0); break;
+    case "ArrowRight": e.preventDefault(); moveFocus( 1, 0); break;
+    case "ArrowUp":    e.preventDefault(); moveFocus(0, -1); break;
+    case "ArrowDown":  e.preventDefault(); moveFocus(0,  1); break;
+    case "Enter":
+    case " ":          place(); break;
+  }
+});
+
+// Phones: first touch unlocks audio
+document.addEventListener("pointerdown", () => unlockAudio());
+
+// ── Gamepad ───────────────────────────────────────────────────────────────
+let _gpPrev = [];
+function pollGamepad() {
+  const gp = navigator.getGamepads?.()[0];
+  if (gp) {
+    unlockAudio();
+    const hit = i => gp.buttons[i]?.pressed && !_gpPrev[i];
+    if (S && S.status !== "playing") {
+      if (hit(9)) sess.leave();
+      else if ([0,1,2,3,12,13,14,15].some(hit)) requestRematch();
+    } else {
+      if (hit(14) || (gp.axes[0] < -.5 && !_gpPrev.axL)) moveFocus(-1, 0);
+      if (hit(15) || (gp.axes[0] >  .5 && !_gpPrev.axR)) moveFocus( 1, 0);
+      if (hit(12) || (gp.axes[1] < -.5 && !_gpPrev.axU)) moveFocus(0, -1);
+      if (hit(13) || (gp.axes[1] >  .5 && !_gpPrev.axD)) moveFocus(0,  1);
+      if (hit(0))  place();
+      if (hit(1) || hit(9)) sess.leave();
+    }
+    _gpPrev = gp.buttons.map(b => b.pressed);
+    _gpPrev.axL = gp.axes[0] < -.5;
+    _gpPrev.axR = gp.axes[0] >  .5;
+    _gpPrev.axU = gp.axes[1] < -.5;
+    _gpPrev.axD = gp.axes[1] >  .5;
+  }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
+// ── Online session ────────────────────────────────────────────────────────
+sess = EldaOnline.connect({
+  // host: sent to the guest on every (re)join and whenever the host's link comes back
+  getSnapshot: () => S,
+
+  // guest: authoritative state from the host
+  onSnapshot: (snap) => { if (validSnapshot(snap)) adopt(snap); },
+
+  // either side: the peer's messages
+  onMessage: (type, payload) => {
+    if (type === "focus") {                     // the opponent's live cursor
+      const cell = payload && payload.cell;
+      if (Number.isInteger(cell) && cell >= 0 && cell <= 8) { oppFocus = cell; render(); }
+      return;
+    }
+    if (me !== 1) return;                       // only the host applies rules
+    let ok = true;
+    if (type === "move")    ok = hostMove(2, payload && payload.cell, payload && payload.ply);
+    if (type === "rematch") hostRematch(2);
+    if (type === "sync" || !ok) hostResync();   // rejected / asked: resync the guest
+  },
+
+  onLink: (status) => {
+    linked = status === "up";
+    if (linked) everLinked = true; else oppFocus = null;
+    render();
+    if (linked) sendFocus(true);
+  },
+
+  // the snapshot just went out (SDK), and it reset the guest's view of my cursor
+  onPeerJoined: () => sendFocus(true),
+
+  onPeerLeft: () => { peerLeft = true; render(); },
+});
+
+me = sess.role === "host" ? 1 : 2;
+document.documentElement.style.setProperty("--me",  me === 1 ? "var(--x)" : "var(--o)");
+document.documentElement.style.setProperty("--opp", me === 1 ? "var(--o)" : "var(--x)");
+if (me === 1) S = newRound(1);   // host moves first in round 1; guest waits for a snapshot
+render();
+</script>
+</body>
+</html>
