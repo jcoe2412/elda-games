@@ -81,7 +81,7 @@ s.leave();                 // ask the parent to end the session (Escape / quit)
   `rev` counter in every snapshot so the guest can tell a real update from a
   repeat.
 * The parent ends the session on its own when the peer leaves, is silent for
-  60 s, or the TV goes back to standby. What happens *next* (close the
+  60 s, or the TV itself ends it (standby, another feature taking over). What happens *next* (close the
   overlay, return to the video call, …) is decided by the parent, not by the
   game: a game is only a layer on top of whatever the device was doing. Games
   just show a "your opponent left" message.
