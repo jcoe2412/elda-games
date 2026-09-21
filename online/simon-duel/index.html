@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title>Simon duel — online</title>
+<style>
+  :root {
+    --bg: #0e0e1c; --border: #4a4a90; --text: #e0e0e0; --dim: #8a8aa0;
+    --p1: #4488ff; --p2: #ff6633;                        /* host / guest */
+    --me: var(--p1); --opp: var(--p2);
+    --green: #22bb33; --red: #dd2200; --yellow: #ddaa00;
+    --pad: min(19vh, 19vw); --gap: 14px;                 /* TV (landscape) */
+  }
+  @media (max-aspect-ratio: 1/1) {                       /* phone in portrait */
+    :root { --pad: min(calc((100vw - 48px) / 3), 16vh); --gap: 10px; }
+    h1 { font-size: 1.6rem !important; }
+    #status { font-size: 1.3rem !important; min-height: 1.8rem !important; }
+    #meta { font-size: .85rem !important; }
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%; background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  }
+  #game { display: flex; flex-direction: column; align-items: center; gap: .8rem; padding: .5rem; }
+  h1 { font-size: 2.8rem; font-weight: 900; letter-spacing: .06em; }
+  #status { font-size: 2.1rem; font-weight: 700; min-height: 2.6rem; text-align: center; transition: color .25s; }
+  #status.your-turn { color: var(--me); } #status.waiting { color: var(--yellow); }
+  #status.win { color: var(--green); } #status.lose { color: var(--red); }
+
+  /* the four pads in a cross, like the arrow keys */
+  #pads { display: grid; grid-template-columns: repeat(3, var(--pad)); grid-template-rows: repeat(3, var(--pad)); gap: var(--gap); }
+  .pad { border-radius: 22%; cursor: pointer; display: flex; align-items: center; justify-content: center;
+         border: 6px solid rgba(255,255,255,.25); opacity: .42; transition: opacity .08s, transform .08s, box-shadow .08s; }
+  .pad svg { width: 46%; height: 46%; fill: rgba(255,255,255,.85); }
+  .pad.p0 { grid-area: 1 / 2; background: #22b04a; }   /* up    */
+  .pad.p1 { grid-area: 2 / 3; background: #e5393a; }   /* right */
+  .pad.p2 { grid-area: 3 / 2; background: #eab80f; }   /* down  */
+  .pad.p3 { grid-area: 2 / 1; background: #2f7cf6; }   /* left  */
+  .pad.lit { opacity: 1; transform: scale(1.07); box-shadow: 0 0 34px 8px rgba(255,255,255,.55); border-color: #fff; }
+  .pad.expected { opacity: 1; box-shadow: 0 0 0 8px var(--red); }
+  #center { grid-area: 2 / 2; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+  #len { font-size: calc(var(--pad) * .5); font-weight: 900; line-height: 1; }
+  #len-label { font-size: .9rem; color: var(--dim); margin-top: .3rem; }
+
+  #meta { display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap; justify-content: center; color: var(--dim); font-size: .95rem; }
+  #me-badge { display: inline-flex; align-items: center; gap: .5rem; padding: .2rem .7rem; border: 1px solid #333; border-radius: 99px; }
+  #me-dot { width: .9em; height: .9em; border-radius: 50%; background: var(--me); }
+  #again { font: inherit; font-size: 1.3rem; font-weight: 700; min-height: 48px; padding: .5rem 1.8rem; border: 0; border-radius: 99px;
+           background: var(--me); color: #fff; cursor: pointer; }
+  #again:disabled { background: #333; color: var(--dim); cursor: default; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="game">
+  <h1 id="title-el"></h1>
+  <div id="status" class="waiting"></div>
+  <div id="pads"></div>
+  <div id="meta">
+    <span id="me-badge"><span id="me-dot"></span><span id="me-text"></span></span>
+    <span id="score"></span>
+    <span id="hint"></span>
+  </div>
+  <button id="again" class="hidden"></button>
+</div>
+
+<script src="../elda-online.js"></script>
+<script>
+// ── i18n (en / fr / nl). No text-to-speech: online games run during a video call. ──
+const PARAMS = new URLSearchParams(location.search);
+const LANG = (() => {
+  const l = (PARAMS.get("lang") || "en").split(/[-_]/)[0].toLowerCase();
+  return ["fr", "nl"].includes(l) ? l : "en";
+})();
+const T = {
+  en: { title: "Simon duel", watch: "Watch the sequence…", first: "You start — pick any colour", repeat: "Your turn — repeat the sequence",
+        add: "Now add ONE new colour", oppTurn: "Opponent's turn", oppWatch: "Both watch the sequence…", sent: "…",
+        youWin: "You win! 🎉", youLose: "You lose", wrongYou: "You pressed the wrong colour", wrongOpp: "Your opponent pressed the wrong colour",
+        again: "Play again", waitAgain: "Waiting for your opponent…", oppAgain: "Your opponent wants a rematch",
+        waitOpp: "Waiting for your opponent…", connecting: "Connecting…", lost: "Connection lost — waiting…",
+        oppLeft: "Your opponent left the game", playBlue: "You are blue", playOrange: "You are orange", score: "You {me} – {opp} Opponent",
+        len: "in the sequence", hint: "← ↑ → ↓  colours   Esc  quit", hintOver: "Enter / A  play again   Esc  quit", hintTouch: "Tap the colours" },
+  fr: { title: "Duel Simon", watch: "Regardez la séquence…", first: "Vous commencez — choisissez une couleur", repeat: "Votre tour — répétez la séquence",
+        add: "Ajoutez maintenant UNE couleur", oppTurn: "Tour de l'adversaire", oppWatch: "Regardez tous les deux la séquence…", sent: "…",
+        youWin: "Vous gagnez ! 🎉", youLose: "Vous perdez", wrongYou: "Vous avez appuyé sur la mauvaise couleur", wrongOpp: "Votre adversaire s'est trompé de couleur",
+        again: "Rejouer", waitAgain: "En attente de votre adversaire…", oppAgain: "Votre adversaire veut rejouer",
+        waitOpp: "En attente de votre adversaire…", connecting: "Connexion…", lost: "Connexion perdue — en attente…",
+        oppLeft: "Votre adversaire a quitté la partie", playBlue: "Vous êtes bleu", playOrange: "Vous êtes orange", score: "Vous {me} – {opp} Adversaire",
+        len: "dans la séquence", hint: "← ↑ → ↓  couleurs   Échap  quitter", hintOver: "Entrée / A  rejouer   Échap  quitter", hintTouch: "Touchez les couleurs" },
+  nl: { title: "Simon-duel", watch: "Kijk naar de reeks…", first: "U begint — kies een kleur", repeat: "Uw beurt — herhaal de reeks",
+        add: "Voeg nu ÉÉN nieuwe kleur toe", oppTurn: "Beurt van de tegenstander", oppWatch: "Kijk allebei naar de reeks…", sent: "…",
+        youWin: "U wint! 🎉", youLose: "U verliest", wrongYou: "U drukte op de verkeerde kleur", wrongOpp: "Uw tegenstander drukte op de verkeerde kleur",
+        again: "Nog een keer", waitAgain: "Wachten op uw tegenstander…", oppAgain: "Uw tegenstander wil opnieuw spelen",
+        waitOpp: "Wachten op uw tegenstander…", connecting: "Verbinden…", lost: "Verbinding verbroken — wachten…",
+        oppLeft: "Uw tegenstander heeft het spel verlaten", playBlue: "U bent blauw", playOrange: "U bent oranje", score: "U {me} – {opp} Tegenstander",
+        len: "in de reeks", hint: "← ↑ → ↓  kleuren   Esc  stoppen", hintOver: "Enter / A  opnieuw   Esc  stoppen", hintTouch: "Tik op de kleuren" },
+}[LANG];
+
+// ── Sound effects only: one tone per colour ────────────────────────────────
+let audioCtx = null;
+function beep(freq, dur, vol = 0.3, delay = 0, type = "sine") {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination); o.type = type; o.frequency.value = freq;
+    const t = audioCtx.currentTime + delay;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.start(t); o.stop(t + dur);
+  } catch (_) {}
+}
+const unlockAudio = () => { if (audioCtx && audioCtx.state === "suspended") audioCtx.resume(); };
+const TONES = [523, 392, 330, 262];                                    // up, right, down, left
+const tone = (p, ms = 250) => beep(TONES[p], ms / 1000, 0.3, 0, "triangle");
+const soundWin = () => [[523, 0], [659, .14], [784, .28], [1046, .42]].forEach(([f, d]) => beep(f, .28, .4, d));
+const soundLose = () => { beep(200, .35, .25, 0, "sawtooth"); beep(160, .45, .25, .35, "sawtooth"); };
+
+// ── The rules ──────────────────────────────────────────────────────────────
+//  A shared sequence of colours. On your turn you repeat the WHOLE sequence, then add ONE new colour.
+//  The first wrong press loses. Colours: 0 up (green), 1 right (red), 2 down (yellow), 3 left (blue).
+//  The whole turn travels as ONE intent {pads, ply}: the phone plays with instant feedback, whatever the network does.
+const EPOCH = Math.random().toString(36).slice(2, 10);
+function newRound(starter, score) {
+  return { seq: [], turn: starter, starter, status: "playing", winner: 0, ply: 0, fail: null,
+           score: score || { 1: 0, 2: 0 }, rematch: { 1: false, 2: false }, epoch: EPOCH, rev: 0 };
+}
+function validSnapshot(s) {
+  return !!s && Array.isArray(s.seq) && s.seq.length <= 500 && s.seq.every((p) => Number.isInteger(p) && p >= 0 && p <= 3)
+    && (s.turn === 1 || s.turn === 2) && ["playing", "won"].includes(s.status) && Number.isInteger(s.ply)
+    && (s.fail === null || (s.fail && Number.isInteger(s.fail.expected))) && s.score && s.rematch;
+}
+const clone = (o) => JSON.parse(JSON.stringify(o));
+const stepMs = (n) => Math.max(280, 700 - 30 * n);                     // faster as the sequence grows
+
+let S = null, sess = null, me = 1;
+let phase = "idle";              // "watch" (the sequence plays) | "ready" (played: on my turn I may press, on theirs I watch live) | "sent" | "over"
+let entered = [];                // my presses this turn
+let lit = null, expectedPad = null;
+let oppN = 0;                    // how many pads the opponent has pressed this turn (live)
+let playToken = 0, litTimer = null;
+let linked = false, everLinked = false, peerLeft = false;
+let pending = false, pendingRev = null, pendingToken = 0;
+const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+
+const myTurn = () => !!S && linked && !peerLeft && S.status === "playing" && S.turn === me;
+const canAct = () => myTurn() && !pending && phase === "ready";
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+$("title-el").textContent = T.title;
+const ARROWS = [                                     // an arrow pointing up / right / down / left
+  '<svg viewBox="0 0 100 100"><polygon points="50,12 88,64 12,64"/></svg>',
+  '<svg viewBox="0 0 100 100"><polygon points="88,50 36,12 36,88"/></svg>',
+  '<svg viewBox="0 0 100 100"><polygon points="50,88 88,36 12,36"/></svg>',
+  '<svg viewBox="0 0 100 100"><polygon points="12,50 64,12 64,88"/></svg>',
+];
+for (let p = 0; p < 4; p++) {
+  const el = document.createElement("div");
+  el.className = "pad p" + p; el.innerHTML = ARROWS[p]; el.dataset.pad = p;
+  el.addEventListener("click", () => press(p));
+  $("pads").appendChild(el);
+}
+const center = document.createElement("div");
+center.id = "center"; center.innerHTML = '<div id="len">0</div><div id="len-label"></div>';
+$("pads").appendChild(center);
+
+function setStatus(text, cls) { $("status").textContent = text; $("status").className = cls; }
+function litPad(p, ms, silent) {
+  clearTimeout(litTimer); lit = p; renderPads(); if (!silent) tone(p, Math.min(ms, 400));
+  litTimer = setTimeout(() => { if (lit === p) { lit = null; renderPads(); } }, ms);
+}
+function renderPads() {
+  const kids = $("pads").children;
+  for (let p = 0; p < 4; p++) { kids[p].classList.toggle("lit", lit === p); kids[p].classList.toggle("expected", expectedPad === p); }
+}
+function render() {
+  renderPads();
+  $("len").textContent = S ? S.seq.length : 0;
+  $("len-label").textContent = T.len;
+  const over = !!S && S.status !== "playing";
+  $("me-text").textContent = me === 1 ? T.playBlue : T.playOrange;
+  $("hint").textContent = TOUCH ? (over ? "" : T.hintTouch) : (over ? T.hintOver : T.hint);
+  $("score").textContent = S ? T.score.replace("{me}", S.score[me]).replace("{opp}", S.score[3 - me]) : "";
+  let again = false, againText = T.again, againOff = false;
+  if (peerLeft)          setStatus(T.oppLeft, "lose");
+  else if (!linked)      setStatus(everLinked ? T.lost : (me === 1 ? T.waitOpp : T.connecting), "waiting");
+  else if (!S)           setStatus(T.connecting, "waiting");
+  else if (S.status === "playing") {
+    if (phase === "watch") setStatus(myTurn() ? T.watch : T.oppWatch, "waiting");
+    else if (S.turn !== me) setStatus(T.oppTurn, "waiting");
+    else if (pending || phase === "sent") setStatus(T.sent, "waiting");
+    else if (S.seq.length === 0) setStatus(T.first, "your-turn");
+    else setStatus(entered.length >= S.seq.length ? T.add : T.repeat, "your-turn");
+  } else {
+    const iWon = S.winner === me;
+    setStatus((iWon ? T.youWin : T.youLose) + (S.fail ? " — " + (S.fail.by === me ? T.wrongYou : T.wrongOpp) : ""), iWon ? "win" : "lose");
+    again = true;
+    if (S.rematch[me]) { againText = T.waitAgain; againOff = true; }
+    else if (S.rematch[3 - me]) againText = T.again + " — " + T.oppAgain;
+  }
+  $("again").classList.toggle("hidden", !again);
+  $("again").textContent = againText;
+  $("again").disabled = againOff;
+}
+
+// ── Playback: BOTH screens play the sequence at the start of a turn ────────
+function startPlayback() {
+  const token = ++playToken, seq = S.seq.slice(), step = stepMs(seq.length);
+  phase = "watch"; entered = []; oppN = 0; expectedPad = null; render();
+  let i = 0;
+  const next = () => {
+    if (token !== playToken) return;
+    if (i >= seq.length) { finishPlayback(token); return; }
+    litPad(seq[i], step * 0.6); i++;
+    setTimeout(next, step);
+  };
+  setTimeout(next, 600);
+}
+function finishPlayback(token) {
+  if (token !== undefined && token !== playToken) return;
+  playToken++; lit = null;
+  phase = S && S.status === "playing" ? "ready" : "over";     // (decided later, from the CURRENT link/turn, by canAct)
+  entered = []; render();
+}
+
+// ── State changes: BOTH sides funnel through adopt() ───────────────────────
+function adopt(next) {
+  const prev = S;
+  S = next;
+  if (pending && !(prev && prev.epoch === next.epoch && next.rev <= pendingRev)) pending = false;
+  const sameTurn = prev && prev.epoch === next.epoch && prev.ply === next.ply && prev.turn === next.turn && prev.status === next.status;
+  if (sameTurn) {                                                        // a repeat / resync: don't restart what is in progress
+    if (phase === "sent" && !pending) { phase = "ready"; entered = []; }  // ...but a turn the host refused is released
+    render(); return;
+  }
+  clearTimeout(litTimer); lit = null;
+  if (next.status === "playing") startPlayback();
+  else {
+    playToken++; phase = "over"; entered = [];
+    expectedPad = next.fail ? next.fail.expected : null;
+    render();
+    setTimeout(() => { next.winner === me ? soundWin() : soundLose(); }, 0);
+    setTimeout(() => { expectedPad = null; renderPads(); }, 2500);
+  }
+}
+
+// ── HOST: applies the rules ────────────────────────────────────────────────
+function hostCommit(next) {
+  next.epoch = EPOCH;
+  next.rev = (S && S.rev || 0) + 1;
+  sess.publishSnapshot(next);                    // FIRST: nothing local may delay the guest's update
+  adopt(next);
+}
+function hostResync() { S.rev = (S.rev || 0) + 1; sess.publishSnapshot(S); }
+
+// a whole turn: the player's presses. Right = the sequence replayed exactly, plus ONE new colour.
+function hostTurn(piece, pads, ply) {
+  if (!S || S.status !== "playing" || S.turn !== piece) return false;
+  if (ply !== undefined && ply !== S.ply) return false;                  // a stale / duplicate intent
+  if (!Array.isArray(pads) || pads.length < 1 || pads.length > S.seq.length + 1 || !pads.every((p) => Number.isInteger(p) && p >= 0 && p <= 3)) return false;
+  let k = 0; while (k < pads.length && k < S.seq.length && pads[k] === S.seq[k]) k++;
+  const next = clone(S);
+  if (k < pads.length && k < S.seq.length) {                             // the first wrong press: the game is over
+    next.status = "won"; next.winner = 3 - piece; next.score[next.winner] += 1;
+    next.fail = { by: piece, at: k, expected: S.seq[k], got: pads[k] };
+    next.ply += 1;
+  } else if (pads.length === S.seq.length + 1) {                          // repeated it all and added one
+    next.seq = pads.slice(); next.turn = 3 - piece; next.ply += 1;
+  } else return false;                                                    // not finished (or a lie): refuse
+  hostCommit(next);
+  return true;
+}
+function hostRematch(piece) {
+  if (!S || S.status === "playing") return;
+  const next = clone(S);
+  next.rematch[piece] = true;
+  hostCommit(next.rematch[1] && next.rematch[2] ? newRound(3 - S.starter, next.score) : next);
+}
+
+// ── Local input ────────────────────────────────────────────────────────────
+function press(p) {
+  unlockAudio();
+  if (!canAct()) return;
+  litPad(p, 220);
+  if (linked) sess.send("focus", { pad: p, n: entered.length });          // the opponent watches my presses live
+  const k = entered.length;
+  entered.push(p);
+  const mistake = k < S.seq.length && p !== S.seq[k];
+  if (mistake || entered.length === S.seq.length + 1) submit(); else render();
+}
+function submit() {
+  const pads = entered.slice(); phase = "sent"; render();
+  if (me === 1) { if (!hostTurn(1, pads)) { phase = "ready"; entered = []; render(); } return; }
+  pending = true; pendingRev = S.rev;
+  const token = ++pendingToken;
+  sess.send("move", { pads, ply: S.ply });                               // ONE intent for the whole turn, naming the state it is based on
+  setTimeout(() => { if (pending && token === pendingToken) { pending = false; phase = "ready"; entered = []; sess.send("sync"); render(); } }, 4000);
+}
+function requestRematch() {
+  if (!S || S.status === "playing" || peerLeft || !linked || S.rematch[me]) return;
+  me === 1 ? hostRematch(1) : sess.send("rematch");
+}
+$("again").addEventListener("click", () => { unlockAudio(); requestRematch(); });
+
+const KEYPAD = { ArrowUp: 0, ArrowRight: 1, ArrowDown: 2, ArrowLeft: 3 };
+document.addEventListener("keydown", (e) => {
+  unlockAudio();
+  if (e.key === "Escape") { sess.leave(); return; }
+  if (S && S.status !== "playing") { if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) requestRematch(); return; }
+  if (e.key in KEYPAD) { e.preventDefault(); press(KEYPAD[e.key]); }
+});
+document.addEventListener("pointerdown", unlockAudio);
+
+let gpPrev = [];                                                         // gamepad: the d-pad (standard mapping); B / Start quit
+function pollGamepad() {
+  const gp = navigator.getGamepads?.()[0];
+  if (gp) {
+    const hit = (i) => gp.buttons[i]?.pressed && !gpPrev[i];
+    if (S && S.status !== "playing") { if (hit(9)) sess.leave(); else if ([0, 1, 2, 3].some(hit)) requestRematch(); }
+    else {
+      if (hit(12) || (gp.axes[1] < -.5 && !gpPrev.axU)) press(0);
+      if (hit(15) || (gp.axes[0] >  .5 && !gpPrev.axR)) press(1);
+      if (hit(13) || (gp.axes[1] >  .5 && !gpPrev.axD)) press(2);
+      if (hit(14) || (gp.axes[0] < -.5 && !gpPrev.axL)) press(3);
+      if (hit(1) || hit(9)) sess.leave();
+    }
+    gpPrev = gp.buttons.map((b) => b.pressed);
+    gpPrev.axL = gp.axes[0] < -.5; gpPrev.axR = gp.axes[0] > .5; gpPrev.axU = gp.axes[1] < -.5; gpPrev.axD = gp.axes[1] > .5;
+  }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
+// ── The online session ─────────────────────────────────────────────────────
+sess = EldaOnline.connect({
+  getSnapshot: () => S,
+
+  onSnapshot: (snap) => {
+    if (!validSnapshot(snap)) return;
+    if (S && snap.rev !== undefined && snap.epoch === S.epoch && snap.rev === S.rev) return;   // a repeat
+    adopt(snap);
+  },
+
+  onMessage: (type, payload) => {
+    if (type === "focus") {                                              // the opponent's press, live
+      const p = payload && payload.pad;
+      if (S && S.status === "playing" && S.turn !== me && phase === "ready" && Number.isInteger(p) && p >= 0 && p <= 3) { oppN++; litPad(p, 220); render(); }
+      return;
+    }
+    if (me !== 1) return;                                                // only the host applies rules
+    let ok = true;
+    if (type === "move")    ok = hostTurn(2, payload && payload.pads, payload && payload.ply);
+    if (type === "rematch") hostRematch(2);
+    if (type === "sync" || !ok) hostResync();
+  },
+
+  onLink: (status) => {
+    linked = status === "up";
+    if (linked) everLinked = true;
+    render();
+  },
+  onPeerLeft: () => { peerLeft = true; playToken++; render(); },
+});
+
+me = sess.role === "host" ? 1 : 2;
+document.documentElement.style.setProperty("--me",  me === 1 ? "var(--p1)" : "var(--p2)");
+document.documentElement.style.setProperty("--opp", me === 1 ? "var(--p2)" : "var(--p1)");
+if (me === 1) { S = newRound(1); startPlayback(); }    // the host starts; the guest waits for a snapshot
+render();
+
+// ── Test-bench hooks (see online/DEVELOPING.md R33–R35) ────────────────────
+window.eldaDebugState = () => S;
+window.eldaDebugInvariant = (s) => {
+  if (s.seq.some((p) => !(p >= 0 && p <= 3))) return "a colour outside 0..3 in the sequence";
+  if (s.status === "won" && !s.fail && s.winner === 0) return "won without a winner";
+  if (s.status === "playing" && s.fail) return "a failure on a game still playing";
+  if (s.fail && s.fail.by !== 3 - s.winner) return "the winner is the player who failed";
+  return null;
+};
+// one random meaningful input: play a whole turn correctly (almost always), or make a mistake now and then
+window.eldaDebugRandomInput = () => {
+  if (S && S.status !== "playing") { requestRematch(); return; }
+  if (phase === "watch" && myTurn()) finishPlayback();                   // skip the animation
+  if (!canAct()) return;
+  const mistake = Math.random() < 0.06 && S.seq.length > 0;
+  for (const p of S.seq) { press(mistake && Math.random() < 0.3 ? (p + 1) % 4 : p); if (!canAct()) return; }
+  if (canAct()) press(Math.floor(Math.random() * 4));
+};
+</script>
+</body>
+</html>

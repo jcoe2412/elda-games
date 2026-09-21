@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title>Memory — online</title>
+<style>
+  :root {
+    --bg: #0e0e1c; --card: #14142a; --border: #4a4a90; --text: #e0e0e0; --dim: #8a8aa0;
+    --p1: #4488ff; --p2: #ff6633;                        /* host / guest */
+    --me: var(--p1); --opp: var(--p2);
+    --green: #22bb33; --red: #dd2200; --yellow: #ddaa00;
+    --cell: min(16vh, 17vw);                             /* TV (landscape) */
+    --gap: 12px;
+  }
+  @media (max-aspect-ratio: 1/1) {                       /* phone in portrait */
+    :root { --cell: min(calc((100vw - 48px) / 4), 15vh); --gap: 8px; }
+    h1 { font-size: 1.6rem !important; }
+    #status { font-size: 1.3rem !important; min-height: 1.8rem !important; }
+    #meta { font-size: .85rem !important; }
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%; background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  }
+  #game { display: flex; flex-direction: column; align-items: center; gap: .8rem; padding: .5rem; }
+  h1 { font-size: 2.8rem; font-weight: 900; letter-spacing: .06em; }
+  #status { font-size: 2.1rem; font-weight: 700; min-height: 2.6rem; text-align: center; transition: color .25s; }
+  #status.your-turn { color: var(--me); } #status.waiting { color: var(--yellow); }
+  #status.win { color: var(--green); } #status.lose { color: var(--red); } #status.draw { color: var(--dim); }
+  #status.good { color: var(--green); }
+
+  #board { display: grid; grid-template-columns: repeat(4, var(--cell)); grid-template-rows: repeat(4, var(--cell)); gap: var(--gap); }
+  .card {
+    width: var(--cell); height: var(--cell); border-radius: 16px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; position: relative;
+    background: #22225a; border: 6px solid var(--border);
+    font-size: calc(var(--cell) * .5); font-weight: 900; color: #6a6ab8;
+  }
+  .card.down::after { content: "?"; }                                   /* the back of a card */
+  .card.up { background: #f1f1ff; border-color: #ffffff; cursor: default; }
+  .card.matched { background: #1b1b3a; opacity: .9; cursor: default; }
+  .card.matched.by1 { border-color: var(--p1); } .card.matched.by2 { border-color: var(--p2); }
+  .card svg { width: 70%; height: 70%; }
+  .card.cur      { box-shadow: 0 0 0 5px var(--me); }                   /* my cursor */
+  .card.opp-cur  { box-shadow: 0 0 0 5px var(--opp); }                  /* the opponent's live cursor */
+  .card.cur.opp-cur { box-shadow: 0 0 0 5px var(--me), 0 0 0 10px var(--opp); }
+
+  #meta { display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap; justify-content: center; color: var(--dim); font-size: .95rem; }
+  #me-badge { display: inline-flex; align-items: center; gap: .5rem; padding: .2rem .7rem; border: 1px solid #333; border-radius: 99px; }
+  #me-dot { width: .9em; height: .9em; border-radius: 50%; background: var(--me); }
+  #pairs { color: var(--text); font-weight: 700; }
+  #again { font: inherit; font-size: 1.3rem; font-weight: 700; min-height: 48px; padding: .5rem 1.8rem; border: 0; border-radius: 99px;
+           background: var(--me); color: #fff; cursor: pointer; }
+  #again:disabled { background: #333; color: var(--dim); cursor: default; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div id="game">
+  <h1 id="title-el"></h1>
+  <div id="status" class="waiting"></div>
+  <div id="board"></div>
+  <div id="meta">
+    <span id="me-badge"><span id="me-dot"></span><span id="me-text"></span></span>
+    <span id="pairs"></span>
+    <span id="score"></span>
+    <span id="hint"></span>
+  </div>
+  <button id="again" class="hidden"></button>
+</div>
+
+<script src="../elda-online.js"></script>
+<script>
+// ── i18n (en / fr / nl). No text-to-speech: online games run during a video call. ──
+const PARAMS = new URLSearchParams(location.search);
+const LANG = (() => {
+  const l = (PARAMS.get("lang") || "en").split(/[-_]/)[0].toLowerCase();
+  return ["fr", "nl"].includes(l) ? l : "en";
+})();
+const T = {
+  en: { title: "Memory", yourTurn: "Your turn — pick a card", second: "Now pick a second card", oppTurn: "Opponent's turn",
+        pair: "It's a pair! 🎉", nopair: "No pair", youWin: "You win! 🎉", youLose: "You lose", draw: "Draw!",
+        again: "Play again", waitAgain: "Waiting for your opponent…", oppAgain: "Your opponent wants a rematch",
+        waitOpp: "Waiting for your opponent…", connecting: "Connecting…", lost: "Connection lost — waiting…",
+        oppLeft: "Your opponent left the game", playBlue: "You are blue", playOrange: "You are orange",
+        pairs: "Pairs: you {me} – {opp} opponent", score: "Games {me} – {opp}",
+        hint: "← ↑ → ↓  move   Enter / A  flip   Esc  quit", hintOver: "Enter / A  play again   Esc  quit",
+        hintTouch: "Tap a card to select it, tap it again to flip it" },
+  fr: { title: "Memory", yourTurn: "Votre tour — choisissez une carte", second: "Choisissez une deuxième carte", oppTurn: "Tour de l'adversaire",
+        pair: "Une paire ! 🎉", nopair: "Pas de paire", youWin: "Vous gagnez ! 🎉", youLose: "Vous perdez", draw: "Égalité !",
+        again: "Rejouer", waitAgain: "En attente de votre adversaire…", oppAgain: "Votre adversaire veut rejouer",
+        waitOpp: "En attente de votre adversaire…", connecting: "Connexion…", lost: "Connexion perdue — en attente…",
+        oppLeft: "Votre adversaire a quitté la partie", playBlue: "Vous êtes bleu", playOrange: "Vous êtes orange",
+        pairs: "Paires : vous {me} – {opp} adversaire", score: "Parties {me} – {opp}",
+        hint: "← ↑ → ↓  déplacer   Entrée / A  retourner   Échap  quitter", hintOver: "Entrée / A  rejouer   Échap  quitter",
+        hintTouch: "Touchez une carte pour la choisir, touchez-la à nouveau pour la retourner" },
+  nl: { title: "Memory", yourTurn: "Uw beurt — kies een kaart", second: "Kies nu een tweede kaart", oppTurn: "Beurt van de tegenstander",
+        pair: "Een paar! 🎉", nopair: "Geen paar", youWin: "U wint! 🎉", youLose: "U verliest", draw: "Gelijkspel!",
+        again: "Nog een keer", waitAgain: "Wachten op uw tegenstander…", oppAgain: "Uw tegenstander wil opnieuw spelen",
+        waitOpp: "Wachten op uw tegenstander…", connecting: "Verbinden…", lost: "Verbinding verbroken — wachten…",
+        oppLeft: "Uw tegenstander heeft het spel verlaten", playBlue: "U bent blauw", playOrange: "U bent oranje",
+        pairs: "Paren: u {me} – {opp} tegenstander", score: "Spellen {me} – {opp}",
+        hint: "← ↑ → ↓  bewegen   Enter / A  omdraaien   Esc  stoppen", hintOver: "Enter / A  opnieuw   Esc  stoppen",
+        hintTouch: "Tik op een kaart om te kiezen, tik nogmaals om om te draaien" },
+}[LANG];
+
+// ── Sound effects only ─────────────────────────────────────────────────────
+let audioCtx = null;
+function beep(freq, dur, vol = 0.3, delay = 0, type = "sine") {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination); o.type = type; o.frequency.value = freq;
+    const t = audioCtx.currentTime + delay;
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.start(t); o.stop(t + dur);
+  } catch (_) {}
+}
+const unlockAudio = () => { if (audioCtx && audioCtx.state === "suspended") audioCtx.resume(); };
+const soundFlip = () => beep(420, 0.07, 0.25, 0, "triangle");
+const soundPair = () => { beep(660, 0.12, 0.3); beep(880, 0.16, 0.3, 0.1); };
+const soundNoPair = () => beep(170, 0.22, 0.25, 0, "sawtooth");
+const soundWin = () => [[523, 0], [659, .14], [784, .28], [1046, .42]].forEach(([f, d]) => beep(f, .28, .4, d));
+const soundLose = () => { beep(200, .35, .25, 0, "sawtooth"); beep(160, .45, .25, .35, "sawtooth"); };
+const soundDraw = () => { beep(350, .2, .3); beep(350, .2, .3, .28); };
+
+// ── The 8 symbols: drawn as SVG (shape AND colour differ), so no emoji font is needed on the TV ──
+const SYMS = [
+  '<svg viewBox="0 0 100 100"><polygon fill="#e6b800" points="50,7 61,38 94,38 67,58 77,91 50,71 23,91 33,58 6,38 39,38"/></svg>',   // star
+  '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="30" fill="none" stroke="#1e88e5" stroke-width="15"/></svg>',                  // ring
+  '<svg viewBox="0 0 100 100"><path fill="#e5395a" d="M50 90C8 60 6 28 27 19c13-5 21 3 23 12 2-9 10-17 23-12 21 9 19 41-23 71z"/></svg>', // heart
+  '<svg viewBox="0 0 100 100"><polygon fill="#2e9e44" points="50,10 93,88 7,88"/></svg>',                                            // triangle
+  '<svg viewBox="0 0 100 100"><rect x="17" y="17" width="66" height="66" rx="6" fill="#8e5cf7"/></svg>',                              // square
+  '<svg viewBox="0 0 100 100"><path fill="#0fb5a8" d="M38 8h24v30h30v24H62v30H38V62H8V38h30z"/></svg>',                              // plus
+  '<svg viewBox="0 0 100 100"><polygon fill="#f0762c" points="50,6 94,50 50,94 6,50"/></svg>',                                        // diamond
+  '<svg viewBox="0 0 100 100"><polygon fill="#d1478d" points="26,14 74,14 96,50 74,86 26,86 4,50"/></svg>',                           // hexagon
+];
+const PAIRS = 8, CARDS = 2 * PAIRS, COLS = 4;
+const RESOLVE_MATCH_MS = 900, RESOLVE_MISS_MS = 1700;      // how long the two cards stay visible before they resolve
+
+// ── GAME STATE: the HOST owns it and publishes it whole ────────────────────
+//   st: 0 face down, 1 face up (not yet resolved), 2 matched (own[i] = who took the pair)
+//   up: the indices currently face up; busy: two are up and the host is about to resolve them
+const EPOCH = Math.random().toString(36).slice(2, 10);
+function shuffled() {
+  const a = []; for (let s = 0; s < PAIRS; s++) a.push(s, s);
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+function newRound(starter, score) {
+  return { sym: shuffled(), st: Array(CARDS).fill(0), own: Array(CARDS).fill(0), up: [], busy: false,
+           turn: starter, starter, status: "playing", winner: 0, ply: 0, pairs: { 1: 0, 2: 0 },
+           score: score || { 1: 0, 2: 0 }, rematch: { 1: false, 2: false }, epoch: EPOCH, rev: 0 };
+}
+function validSnapshot(s) {
+  const arr = (a, f) => Array.isArray(a) && a.length === CARDS && a.every(f);
+  return !!s && arr(s.sym, (v) => Number.isInteger(v) && v >= 0 && v < PAIRS) && arr(s.st, (v) => v === 0 || v === 1 || v === 2)
+    && arr(s.own, (v) => v === 0 || v === 1 || v === 2) && Array.isArray(s.up) && s.up.length <= 2 && s.up.every((i) => Number.isInteger(i) && i >= 0 && i < CARDS)
+    && (s.turn === 1 || s.turn === 2) && ["playing", "won", "draw"].includes(s.status) && Number.isInteger(s.ply) && s.pairs && s.score && s.rematch;
+}
+const clone = (o) => JSON.parse(JSON.stringify(o));
+
+let S = null, sess = null, me = 1;
+let cursor = 5;                  // my cursor (a card 0..15)
+let armed = null;                // touch: the card I tapped once (a second tap flips it)
+let oppCur = null;               // the opponent's live cursor
+let linked = false, everLinked = false, peerLeft = false;
+let pending = false, pendingRev = null, pendingToken = 0;
+let resolveTimer = null;         // host: the timer that turns two face-up cards into a pair or back down
+const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+let lastFocusSent = 0, focusTimer = null;
+
+const myTurn = () => !!S && linked && !peerLeft && S.status === "playing" && S.turn === me;
+const canPlay = () => myTurn() && !S.busy && !pending;
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+$("title-el").textContent = T.title;
+function setStatus(text, cls) { $("status").textContent = text; $("status").className = cls; }
+
+function render() {
+  const board = $("board"); board.innerHTML = "";
+  const showOpp = !!S && S.status === "playing" && linked && !peerLeft && S.turn === 3 - me && oppCur !== null;
+  for (let i = 0; i < CARDS; i++) {
+    const el = document.createElement("div");
+    const st = S ? S.st[i] : 0;
+    el.className = "card " + (st === 0 ? "down" : st === 1 ? "up" : "matched by" + S.own[i]);
+    if (S && st !== 0) el.innerHTML = SYMS[S.sym[i]];            // the visible symbol
+    if (canPlay() && i === cursor) el.classList.add("cur");
+    if (showOpp && i === oppCur) el.classList.add("opp-cur");
+    el.addEventListener("click", () => {
+      cursor = i;
+      if (TOUCH && canPlay() && S.st[i] === 0 && armed !== i) { armed = i; render(); sendFocus(); return; }   // touch: select first…
+      activate(i);                                                                                             // …then flip
+    });
+    board.appendChild(el);
+  }
+  renderStatus();
+}
+
+function renderStatus() {
+  const over = !!S && S.status !== "playing";
+  $("me-text").textContent = me === 1 ? T.playBlue : T.playOrange;
+  $("hint").textContent = TOUCH ? (over ? "" : T.hintTouch) : (over ? T.hintOver : T.hint);
+  $("pairs").textContent = S ? T.pairs.replace("{me}", S.pairs[me]).replace("{opp}", S.pairs[3 - me]) : "";
+  $("score").textContent = S ? T.score.replace("{me}", S.score[me]).replace("{opp}", S.score[3 - me]) : "";
+  let again = false, againText = T.again, againOff = false;
+  if (peerLeft)          setStatus(T.oppLeft, "lose");
+  else if (!linked)      setStatus(everLinked ? T.lost : (me === 1 ? T.waitOpp : T.connecting), "waiting");
+  else if (!S)           setStatus(T.connecting, "waiting");
+  else if (S.status === "playing") {
+    if (S.busy) { const a = S.sym[S.up[0]] === S.sym[S.up[1]]; setStatus(a ? T.pair : T.nopair, a ? "good" : "waiting"); }
+    else if (S.turn !== me) setStatus(T.oppTurn, "waiting");
+    else setStatus(S.up.length === 1 ? T.second : T.yourTurn, "your-turn");
+  } else {
+    setStatus(S.status === "draw" ? T.draw : (S.winner === me ? T.youWin : T.youLose), S.status === "draw" ? "draw" : (S.winner === me ? "win" : "lose"));
+    again = true;
+    if (S.rematch[me]) { againText = T.waitAgain; againOff = true; }
+    else if (S.rematch[3 - me]) againText = T.again + " — " + T.oppAgain;
+  }
+  $("again").classList.toggle("hidden", !again);
+  $("again").textContent = againText;
+  $("again").disabled = againOff;
+}
+
+// ── Live cursor ────────────────────────────────────────────────────────────
+function sendFocus(force) {
+  if (!myTurn()) return;
+  clearTimeout(focusTimer);
+  const wait = force ? 0 : 60 - (Date.now() - lastFocusSent);
+  if (wait > 0) { focusTimer = setTimeout(() => sendFocus(true), wait); return; }
+  lastFocusSent = Date.now();
+  sess.send("focus", { cur: cursor });
+}
+
+// ── State changes: BOTH sides funnel through adopt() ───────────────────────
+function adopt(next) {
+  const prev = S;
+  S = next;
+  if (pending && !(prev && prev.epoch === next.epoch && next.rev <= pendingRev)) pending = false;
+  armed = null; oppCur = null;
+  render();
+  setTimeout(() => {                                             // sounds after drawing / publishing
+    if (prev && next.up.length > prev.up.length) soundFlip();
+    if (prev && !prev.busy && next.busy) (next.sym[next.up[0]] === next.sym[next.up[1]] ? soundPair : soundNoPair)();
+    if (next.status !== "playing" && (!prev || prev.status === "playing")) next.status === "draw" ? soundDraw() : next.winner === me ? soundWin() : soundLose();
+  }, 0);
+  if (myTurn()) sendFocus(true);
+}
+
+// ── HOST: applies the rules ────────────────────────────────────────────────
+function hostCommit(next) {
+  next.epoch = EPOCH;
+  next.rev = (S && S.rev || 0) + 1;
+  sess.publishSnapshot(next);                    // FIRST: nothing local may delay the guest's update
+  adopt(next);
+}
+function hostResync() { S.rev = (S.rev || 0) + 1; sess.publishSnapshot(S); }
+
+function hostFlip(piece, i, ply) {
+  if (!S || S.status !== "playing" || S.turn !== piece || S.busy) return false;
+  if (!Number.isInteger(i) || i < 0 || i >= CARDS || S.st[i] !== 0) return false;
+  if (ply !== undefined && ply !== S.ply) return false;                 // a stale / duplicate intent
+  const next = clone(S);
+  next.st[i] = 1; next.up.push(i); next.ply += 1;
+  if (next.up.length === 2) {
+    next.busy = true;
+    const match = next.sym[next.up[0]] === next.sym[next.up[1]];
+    const round = next.epoch + ":" + next.starter + ":" + (next.score[1] + next.score[2]);
+    clearTimeout(resolveTimer);
+    resolveTimer = setTimeout(() => hostResolve(round), match ? RESOLVE_MATCH_MS : RESOLVE_MISS_MS);
+  }
+  hostCommit(next);
+  return true;
+}
+// two cards are face up: turn them into a pair (and let the same player continue) or back down (and pass the turn)
+function hostResolve(round) {
+  if (!S || !S.busy || S.status !== "playing") return;
+  if (round !== S.epoch + ":" + S.starter + ":" + (S.score[1] + S.score[2])) return;    // a timer left over from a previous round
+  const next = clone(S), [a, b] = next.up;
+  if (next.sym[a] === next.sym[b]) {
+    next.st[a] = next.st[b] = 2; next.own[a] = next.own[b] = next.turn; next.pairs[next.turn] += 1;
+    if (next.pairs[1] + next.pairs[2] === PAIRS) {
+      if (next.pairs[1] === next.pairs[2]) next.status = "draw";
+      else { next.status = "won"; next.winner = next.pairs[1] > next.pairs[2] ? 1 : 2; next.score[next.winner] += 1; }
+    }
+  } else {
+    next.st[a] = next.st[b] = 0; next.turn = 3 - next.turn;
+  }
+  next.up = []; next.busy = false; next.ply += 1;
+  hostCommit(next);
+}
+function hostRematch(piece) {
+  if (!S || S.status === "playing") return;
+  const next = clone(S);
+  next.rematch[piece] = true;
+  if (next.rematch[1] && next.rematch[2]) { clearTimeout(resolveTimer); hostCommit(newRound(3 - S.starter, next.score)); }
+  else hostCommit(next);
+}
+
+// ── Local input ────────────────────────────────────────────────────────────
+function activate(i) {                                                   // Enter / A / the second tap
+  if (!canPlay() || !S || S.st[i] !== 0) return;
+  armed = null;
+  if (me === 1) { hostFlip(1, i); return; }
+  pending = true; pendingRev = S.rev;
+  const token = ++pendingToken;
+  sess.send("move", { flip: i, ply: S.ply });                            // an INTENT naming the state it is based on
+  setTimeout(() => { if (pending && token === pendingToken) { pending = false; sess.send("sync"); render(); } }, 4000);
+  render();
+}
+function moveCursor(dx, dy) {
+  const c = Math.max(0, Math.min(COLS - 1, (cursor % COLS) + dx)), r = Math.max(0, Math.min(CARDS / COLS - 1, Math.floor(cursor / COLS) + dy));
+  cursor = r * COLS + c; armed = null; render(); sendFocus();
+}
+function requestRematch() {
+  if (!S || S.status === "playing" || peerLeft || !linked || S.rematch[me]) return;
+  me === 1 ? hostRematch(1) : sess.send("rematch");
+}
+$("again").addEventListener("click", () => { unlockAudio(); requestRematch(); });
+
+document.addEventListener("keydown", (e) => {
+  unlockAudio();
+  if (e.key === "Escape") { sess.leave(); return; }
+  if (S && S.status !== "playing") { if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) requestRematch(); return; }
+  if (e.key === "ArrowLeft")  { e.preventDefault(); moveCursor(-1, 0); }
+  if (e.key === "ArrowRight") { e.preventDefault(); moveCursor(1, 0); }
+  if (e.key === "ArrowUp")    { e.preventDefault(); moveCursor(0, -1); }
+  if (e.key === "ArrowDown")  { e.preventDefault(); moveCursor(0, 1); }
+  if (e.key === "Enter" || e.key === " ") activate(cursor);
+});
+document.addEventListener("pointerdown", unlockAudio);
+
+let gpPrev = [];                                                         // gamepad (standard mapping)
+function pollGamepad() {
+  const gp = navigator.getGamepads?.()[0];
+  if (gp) {
+    const hit = (i) => gp.buttons[i]?.pressed && !gpPrev[i];
+    if (S && S.status !== "playing") { if (hit(9)) sess.leave(); else if ([0, 1, 2, 3].some(hit)) requestRematch(); }
+    else {
+      if (hit(14) || (gp.axes[0] < -.5 && !gpPrev.axL)) moveCursor(-1, 0);
+      if (hit(15) || (gp.axes[0] >  .5 && !gpPrev.axR)) moveCursor(1, 0);
+      if (hit(12) || (gp.axes[1] < -.5 && !gpPrev.axU)) moveCursor(0, -1);
+      if (hit(13) || (gp.axes[1] >  .5 && !gpPrev.axD)) moveCursor(0, 1);
+      if (hit(0)) activate(cursor);
+      if (hit(1) || hit(9)) sess.leave();
+    }
+    gpPrev = gp.buttons.map((b) => b.pressed);
+    gpPrev.axL = gp.axes[0] < -.5; gpPrev.axR = gp.axes[0] > .5; gpPrev.axU = gp.axes[1] < -.5; gpPrev.axD = gp.axes[1] > .5;
+  }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
+// ── The online session ─────────────────────────────────────────────────────
+sess = EldaOnline.connect({
+  getSnapshot: () => S,
+
+  onSnapshot: (snap) => {
+    if (!validSnapshot(snap)) return;
+    if (S && snap.rev !== undefined && snap.epoch === S.epoch && snap.rev === S.rev) return;   // a repeat
+    adopt(snap);
+  },
+
+  onMessage: (type, payload) => {
+    if (type === "focus") {
+      const c = payload && payload.cur;
+      if (Number.isInteger(c) && c >= 0 && c < CARDS) { oppCur = c; render(); }
+      return;
+    }
+    if (me !== 1) return;                                                // only the host applies rules
+    let ok = true;
+    if (type === "move")    ok = hostFlip(2, payload && payload.flip, payload && payload.ply);
+    if (type === "rematch") hostRematch(2);
+    if (type === "sync" || !ok) hostResync();
+  },
+
+  onLink: (status) => {
+    linked = status === "up";
+    if (linked) everLinked = true; else oppCur = null;
+    render();
+    if (linked) sendFocus(true);
+  },
+  onPeerJoined: () => sendFocus(true),
+  onPeerLeft: () => { peerLeft = true; clearTimeout(resolveTimer); render(); },
+});
+
+me = sess.role === "host" ? 1 : 2;
+document.documentElement.style.setProperty("--me",  me === 1 ? "var(--p1)" : "var(--p2)");
+document.documentElement.style.setProperty("--opp", me === 1 ? "var(--p2)" : "var(--p1)");
+if (me === 1) S = newRound(1);     // the host goes first in round 1; the guest waits for a snapshot
+render();
+
+// ── Test-bench hooks (see online/DEVELOPING.md R33–R35) ────────────────────
+window.eldaDebugState = () => S;
+window.eldaDebugInvariant = (s) => {
+  const count = {}; let matched = 0;
+  for (let i = 0; i < CARDS; i++) { count[s.sym[i]] = (count[s.sym[i]] || 0) + 1; if (s.st[i] === 2) { matched++; if (s.own[i] !== 1 && s.own[i] !== 2) return "a matched card without an owner"; } }
+  if (Object.values(count).some((n) => n !== 2) || Object.keys(count).length !== PAIRS) return "the symbols are not 8 exact pairs";
+  if (s.up.length !== s.st.filter((v) => v === 1).length) return "the face-up list does not match the cards showing";
+  if (s.up.length > 2) return "more than two cards face up";
+  if (s.busy && s.up.length !== 2) return "busy without two cards face up";
+  if (matched !== 2 * (s.pairs[1] + s.pairs[2])) return "matched cards and pairs found disagree";
+  return null;
+};
+window.eldaDebugRandomInput = () => {
+  if (S && S.status !== "playing") { requestRematch(); return; }
+  if (!canPlay()) return;
+  const down = []; for (let i = 0; i < CARDS; i++) if (S.st[i] === 0) down.push(i);
+  if (!down.length) return;
+  const i = down[Math.floor(Math.random() * down.length)];
+  cursor = i; activate(i);
+};
+</script>
+</body>
+</html>

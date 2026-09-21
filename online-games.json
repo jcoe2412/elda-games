@@ -48,6 +48,38 @@
       "path": "online/draughts/index.html",
       "players": 2,
       "sdk": 1
+    },
+    {
+      "id": "memory",
+      "label": {
+        "en": "Memory",
+        "fr": "Memory",
+        "nl": "Memory"
+      },
+      "description": {
+        "en": "Find the most pairs against the person at the TV",
+        "fr": "Trouvez le plus de paires contre la personne devant la TV",
+        "nl": "Vind de meeste paren tegen de persoon voor de TV"
+      },
+      "path": "online/memory/index.html",
+      "players": 2,
+      "sdk": 1
+    },
+    {
+      "id": "simon-duel",
+      "label": {
+        "en": "Simon Duel",
+        "fr": "Duel Simon",
+        "nl": "Simon-duel"
+      },
+      "description": {
+        "en": "Repeat the colours and add one — the first to slip loses",
+        "fr": "Répétez les couleurs et ajoutez-en une — le premier qui se trompe perd",
+        "nl": "Herhaal de kleuren en voeg er een toe — wie zich vergist verliest"
+      },
+      "path": "online/simon-duel/index.html",
+      "players": 2,
+      "sdk": 1
     }
   ]
 }

@@ -151,7 +151,9 @@ The TV player uses a keyboard or gamepad, the phone player a finger.
   stick axes `0`/`1`, **A** (`0`) confirms, **B** (`1`) or **Start** (`9`) quits.
 * **R26 Touch** — a **first tap selects, a second tap on the same target confirms** (detect touch with
   `matchMedia("(pointer: coarse)")`). The selection is sent as `focus` so the other player *sees your choice before you
-  validate it*, and it prevents accidental moves.
+  validate it*, and it prevents accidental moves. **Exception:** when the input is a rapid sequence of presses that are each
+  harmless and give instant feedback (a Simon-style game: [`simon-duel/`](simon-duel/index.html)), one tap acts, and the whole
+  turn is sent as **one** intent when it is complete so a slow network cannot lag the pressing.
 * **R27** — The opponent's live selection SHOULD be drawn (e.g. a dashed outline in their colour) while it is their turn.
 * **R28** — Interactive elements need `cursor: pointer` and a phone target of at least ~44 px. (The test bench finds what
   to tap by looking for `cursor: pointer`.)
