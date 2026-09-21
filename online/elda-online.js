@@ -26,7 +26,10 @@
 (function (root) {
   "use strict";
 
-  const JOIN_RETRY_MS = 3000;
+  const JOIN_FAST_MS = 1000;        // a guest without a snapshot asks every second at first...
+  const JOIN_FAST_COUNT = 10;
+  const JOIN_RETRY_MS = 3000;       // ...then every 3 s
+  const HOST_REPUBLISH_MS = 5000;   // the host re-sends its state this often
 
   function connect(handlers) {
     const h = handlers || {};
@@ -122,18 +125,30 @@
 
     post({ kind: "hello", sdk: 1, role, sid });
 
-    // The guest keeps asking until it holds a snapshot: the host may not have
-    // started listening yet when the very first join goes out.
-    let joinTimer = null;
+    // Self-healing, in both directions, so no single lost message can leave the two
+    // sides out of step until somebody happens to move:
+    //  - the guest keeps asking until it holds a snapshot (the host page may still be
+    //    loading when the first join goes out, and nothing is ever retained);
+    //  - the host re-sends its state every few seconds, even before it has heard from the
+    //    guest (games ignore a repeat they already have, see the README).
+    let joinTimer = null, hostTimer = null;
     if (role === "guest") {
       sendJoin();
-      joinTimer = setInterval(() => { if (!haveSnapshot) sendJoin(); }, JOIN_RETRY_MS);
+      let n = 0;
+      const tick = () => {
+        if (closed) return;
+        if (!haveSnapshot) sendJoin();
+        joinTimer = setTimeout(tick, ++n < JOIN_FAST_COUNT ? JOIN_FAST_MS : JOIN_RETRY_MS);
+      };
+      joinTimer = setTimeout(tick, JOIN_FAST_MS);
+    } else if (h.getSnapshot) {
+      hostTimer = setInterval(() => { if (!closed) publishSnapshot(h.getSnapshot()); }, HOST_REPUBLISH_MS);
     }
 
     return {
       role, sid, send, publishSnapshot, leave,
       isLinked: () => link === "up",
-      close() { closed = true; if (joinTimer) clearInterval(joinTimer); },
+      close() { closed = true; clearTimeout(joinTimer); clearInterval(hostTimer); },
     };
   }
 

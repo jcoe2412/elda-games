@@ -69,9 +69,14 @@ s.leave();                 // ask the parent to end the session (Escape / quit)
 ```
 
 * **Payloads must be JSON and ≤ 16 KB**; `type` is a string ≤ 32 chars.
-* Whenever the link comes (back) up the guest automatically re-joins and the
-  host answers with a fresh snapshot, and the host also pushes its snapshot on
-  every link-up (it may have changed while its own connection was down), so a
+* The two sides heal themselves: a guest without a snapshot asks again every
+  second (then every 3 s), the host re-sends its snapshot every 5 s, and on
+  every link-up. **A game must therefore ignore a snapshot
+  it already has** (compare the `rev`) so a repeat doesn't reset local UI state
+  such as cursors. Whenever the link comes (back) up the guest automatically
+  re-joins and the host answers with a fresh snapshot, and the host also pushes
+  its snapshot on every link-up (it may have changed while its own connection
+  was down), so a
   phone that was locked or lost its connection catches up without any game
   code. Keep the *entire* game state in the snapshot and this just works.
 * **Make moves idempotent.** Messages can be delayed, retried or duplicated

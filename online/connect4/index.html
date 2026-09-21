@@ -586,7 +586,13 @@ sess = EldaOnline.connect({
   getSnapshot: () => S,
 
   // guest: authoritative state from the host
-  onSnapshot: (snap) => { if (validSnapshot(snap)) adopt(snap); },
+  onSnapshot: (snap) => {
+    if (!validSnapshot(snap)) return;
+    // A repeat of the state I already have (the host re-sends periodically, and answers
+    // every join): nothing changed, so don't reset the cursors / selection.
+    if (S && snap.rev !== undefined && snap.epoch === S.epoch && snap.rev === S.rev) return;
+    adopt(snap);
+  },
 
   // either side: the peer's intents
   onMessage: (type, payload) => {
