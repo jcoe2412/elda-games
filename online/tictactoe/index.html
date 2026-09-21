@@ -8,7 +8,7 @@
   :root {
     --bg:     #0e0e1c;
     --card:   #14142a;
-    --border: #22224a;
+    --border: #4a4a90;   /* was #22224a: barely visible on the TV */
     --x:      #4488ff;   /* host  — moves first in round 1 */
     --o:      #ff6633;   /* guest */
     --me:     var(--x);
@@ -22,12 +22,14 @@
     --cell: min(15vh, 14vw);
     --gap:  12px;
     --r:    16px;
+    --bw:   6px;    /* cell border width */
   }
   /* Phone (portrait): cell sized by width */
   @media (max-aspect-ratio: 1/1) {
     :root {
       --gap:  8px;
       --cell: min(calc((100vw - 32px - 2 * var(--gap)) / 3), 16vh);
+      --bw:   5px;
     }
     h1 { font-size: 1.6rem !important; }
     #status { font-size: 1.3rem !important; min-height: 1.8rem !important; }
@@ -70,7 +72,7 @@
   .cell {
     width: var(--cell); height: var(--cell);
     background: var(--card);
-    border: 3px solid var(--border);
+    border: var(--bw) solid var(--border);
     border-radius: var(--r);
     display: flex; align-items: center; justify-content: center;
     font-size: calc(var(--cell) * 0.58);
@@ -327,6 +329,7 @@ function render() {
     const v = S ? S.board[i] : 0;
     if (v) {
       cell.dataset.mark = MARK[v];
+      cell.textContent = MARK[v];          // the visible X / O (data-mark only colours it)
       if (winSet.has(i)) cell.classList.add("win-cell");
     } else {
       cell.dataset.ghost = MARK[me];
