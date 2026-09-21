@@ -32,6 +32,22 @@
       "path": "online/tictactoe/index.html",
       "players": 2,
       "sdk": 1
+    },
+    {
+      "id": "draughts",
+      "label": {
+        "en": "Draughts (Checkers)",
+        "fr": "Jeu de dames",
+        "nl": "Dammen"
+      },
+      "description": {
+        "en": "Play draughts (8×8) against the person at the TV",
+        "fr": "Jouez aux dames (8×8) contre la personne devant la TV",
+        "nl": "Speel dammen (8×8) tegen de persoon voor de TV"
+      },
+      "path": "online/draughts/index.html",
+      "players": 2,
+      "sdk": 1
     }
   ]
 }

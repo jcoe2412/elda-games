@@ -295,6 +295,12 @@ function clickables(w) {
 }
 function randomInput(role) {
   const w = sides[role] && sides[role].frame.contentWindow; if (!w || !w.document || !w.document.body) return;
+  // A game whose moves are hard to hit with random keys and taps (draughts, chess…) can define
+  // window.eldaDebugRandomInput() = one random MEANINGFUL input through its real handlers (R35).
+  if (typeof w.eldaDebugRandomInput === "function" && Math.random() < 0.7) {
+    try { w.eldaDebugRandomInput(); } catch (e) { sides[role].errors.push("eldaDebugRandomInput threw: " + e.message); }
+    return;
+  }
   if (Math.random() < 0.55) sendKey(role, ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", " ", "Enter"][Math.floor(Math.random() * 7)]);
   else { const c = clickables(w); if (c.length) c[Math.floor(Math.random() * c.length)].click(); }
 }

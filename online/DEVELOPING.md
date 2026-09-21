@@ -193,6 +193,12 @@ Two very different screens must work from the same file:
   either side shows during every play-based check, so a rules bug is reported the moment the impossible state appears —
   with the state's message — instead of as a vague "states differ" later.
 
+* **R35** — If random keys and taps rarely produce a *valid* move in your game (draughts, chess, anything where a move needs a
+  specific sequence of inputs), define `window.eldaDebugRandomInput = () => void`: perform **one random meaningful input for the
+  local player** — through the *same* handlers real input uses (select a piece, confirm a move, ask for a rematch), doing nothing
+  when it is not this player's turn. The bench then mixes it into the auto-play (about 70 % of the inputs); without it the
+  *Keyboard / taps change the game* and *stale move* checks may fail for lack of activity.
+
 ### 3.12 The manifest entry
 
 Add one object to [`../online-games.json`](../online-games.json):
