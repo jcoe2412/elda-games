@@ -1,5 +1,8 @@
 # Online (2-player) games
 
+> **Adding a game?** Start with **[DEVELOPING.md](DEVELOPING.md)** — the specification, a starter
+> game, a test bench and a validator that need no EldaTV. This file is the API / protocol reference.
+
 Games in this folder are played by **two people on two devices**: one on the
 EldaRemote companion app (the *guest*), one on EldaTV (the *host*). They are
 listed by [`../online-games.json`](../online-games.json) — **not** by

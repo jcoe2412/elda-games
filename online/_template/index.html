@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<!--
+  STARTER FOR A NEW ONLINE (2-PLAYER) GAME  —  "Race to 10"
+
+  Copy this folder to online/<your-id>/, then replace the RULES and the DRAWING.
+  Everything marked  ◆ KEEP  is protocol plumbing every online game needs
+  (see ../DEVELOPING.md for why). Test it with the bench: ../dev/index.html.
+
+  The game: players alternate adding 1, 2 or 3 to a shared total. Whoever makes
+  it reach exactly 10 wins.  Host (TV) = player 1 (blue), guest (phone) = player 2.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+<title>Race to 10 — online starter</title>
+<style>
+  :root {
+    --bg: #0e0e1c; --card: #14142a; --border: #4a4a90; --text: #e0e0e0; --dim: #777;
+    --p1: #4488ff; --p2: #ff6633;              /* host / guest colours */
+    --me: var(--p1); --opp: var(--p2);         /* set from the role at start */
+    --green: #22bb33; --red: #dd2200; --yellow: #ddaa00;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%; background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: manipulation;
+  }
+  #game { display: flex; flex-direction: column; align-items: center; gap: 1rem; padding: .5rem; }
+  h1 { font-size: 3rem; font-weight: 900; letter-spacing: .06em; }
+  #status { font-size: 2.2rem; font-weight: 700; min-height: 2.7rem; text-align: center; }
+  #status.your-turn { color: var(--me); } #status.waiting { color: var(--yellow); }
+  #status.win { color: var(--green); }   #status.lose { color: var(--red); } #status.idle { color: var(--dim); }
+  #total { font-size: 8rem; font-weight: 900; line-height: 1; }
+  #bar { width: min(60vw, 30rem); height: 1.2rem; background: var(--card); border: 3px solid var(--border); border-radius: 99px; overflow: hidden; }
+  #bar > div { height: 100%; width: 0; background: var(--green); transition: width .2s; }
+  #choices { display: flex; gap: 1rem; }
+  .choice {
+    font: inherit; font-size: 3rem; font-weight: 900; color: var(--text);
+    width: 6rem; height: 6rem; background: var(--card); border: 6px solid var(--border);
+    border-radius: 1rem; cursor: pointer;
+  }
+  .choice.mine  { border-color: var(--me); }
+  .choice.theirs{ border-color: var(--opp); border-style: dashed; }   /* the opponent's live selection */
+  .choice:disabled { opacity: .35; cursor: default; }
+  #meta { display: flex; gap: 1.2rem; flex-wrap: wrap; justify-content: center; color: var(--dim); font-size: .95rem; }
+  #again { font: inherit; font-size: 1.3rem; font-weight: 700; min-height: 48px; padding: .5rem 1.8rem;
+           border: 0; border-radius: 99px; background: var(--me); color: #fff; cursor: pointer; }
+  #again:disabled { background: #333; color: var(--dim); }
+  .hidden { display: none !important; }
+  @media (max-aspect-ratio: 1/1) {            /* phone in portrait */
+    h1 { font-size: 1.6rem; } #status { font-size: 1.3rem; min-height: 1.8rem; }
+    #total { font-size: 5rem; } .choice { width: 4.5rem; height: 4.5rem; font-size: 2.2rem; border-width: 5px; }
+    #meta { font-size: .85rem; }
+  }
+</style>
+</head>
+<body>
+<div id="game">
+  <h1 id="title"></h1>
+  <div id="status" class="idle"></div>
+  <div id="total">0</div>
+  <div id="bar"><div></div></div>
+  <div id="choices"></div>
+  <div id="meta"><span id="me-text"></span><span id="score"></span><span id="hint"></span></div>
+  <button id="again" class="hidden"></button>
+</div>
+
+<script src="../elda-online.js"></script>   <!-- ◆ KEEP: the SDK -->
+<script>
+// ── i18n ◆ KEEP the three languages (en/fr/nl); the app passes ?lang= ──────
+const PARAMS = new URLSearchParams(location.search);
+const LANG = (() => {
+  const l = (PARAMS.get("lang") || "en").split(/[-_]/)[0].toLowerCase();
+  return ["fr", "nl"].includes(l) ? l : "en";
+})();
+const T = {
+  en: { title: "Race to 10", yourTurn: "Your turn", oppTurn: "Opponent's turn", youWin: "You win! 🎉", youLose: "You lose",
+        again: "Play again", waitAgain: "Waiting for your opponent…", oppAgain: "Your opponent wants a rematch",
+        waitOpp: "Waiting for your opponent…", connecting: "Connecting…", lost: "Connection lost — waiting…",
+        oppLeft: "Your opponent left the game", me1: "You are blue", me2: "You are orange", score: "You {me} – {opp} Opponent",
+        hint: "← →  choose   Enter / A  add   Esc  quit", hintOver: "Enter / A  play again   Esc  quit",
+        hintTouch: "Tap a number to select it, tap it again to add it" },
+  fr: { title: "Course à 10", yourTurn: "Votre tour", oppTurn: "Tour de l'adversaire", youWin: "Vous gagnez ! 🎉", youLose: "Vous perdez",
+        again: "Rejouer", waitAgain: "En attente de votre adversaire…", oppAgain: "Votre adversaire veut rejouer",
+        waitOpp: "En attente de votre adversaire…", connecting: "Connexion…", lost: "Connexion perdue — en attente…",
+        oppLeft: "Votre adversaire a quitté la partie", me1: "Vous êtes bleu", me2: "Vous êtes orange", score: "Vous {me} – {opp} Adversaire",
+        hint: "← →  choisir   Entrée / A  ajouter   Échap  quitter", hintOver: "Entrée / A  rejouer   Échap  quitter",
+        hintTouch: "Touchez un nombre pour le choisir, touchez-le à nouveau pour l'ajouter" },
+  nl: { title: "Race naar 10", yourTurn: "Uw beurt", oppTurn: "Beurt van de tegenstander", youWin: "U wint! 🎉", youLose: "U verliest",
+        again: "Nog een keer", waitAgain: "Wachten op uw tegenstander…", oppAgain: "Uw tegenstander wil opnieuw spelen",
+        waitOpp: "Wachten op uw tegenstander…", connecting: "Verbinden…", lost: "Verbinding verbroken — wachten…",
+        oppLeft: "Uw tegenstander heeft het spel verlaten", me1: "U bent blauw", me2: "U bent oranje", score: "U {me} – {opp} Tegenstander",
+        hint: "← →  kiezen   Enter / A  optellen   Esc  stoppen", hintOver: "Enter / A  opnieuw   Esc  stoppen",
+        hintTouch: "Tik op een getal om het te kiezen, tik nogmaals om het op te tellen" },
+}[LANG];
+
+// ── Sound effects only: NO text-to-speech in online games (they run in video calls) ─
+let audioCtx = null;
+function beep(freq, dur, vol = 0.3) {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.connect(g); g.connect(audioCtx.destination); o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + dur);
+    o.start(); o.stop(audioCtx.currentTime + dur);
+  } catch (_) {}
+}
+const unlockAudio = () => { if (audioCtx && audioCtx.state === "suspended") audioCtx.resume(); };
+
+// ── RULES (pure) — replace with your game ──────────────────────────────────
+const TARGET = 10;
+const maxAmount = (total) => Math.min(3, TARGET - total);
+
+// ── GAME STATE ◆ KEEP the shape rules: the HOST owns it and publishes it whole ─
+//   • everything needed to draw the game is in here (a rejoining phone gets only this)
+//   • epoch + rev: see DEVELOPING.md §"State and ordering"
+const EPOCH = Math.random().toString(36).slice(2, 10);       // identifies this host page load
+function newRound(starter, score) {
+  return { total: 0, turn: starter, starter, status: "playing", winner: 0, ply: 0,
+           score: score || { 1: 0, 2: 0 }, rematch: { 1: false, 2: false }, epoch: EPOCH, rev: 0 };
+}
+function validSnapshot(s) {                                    // ◆ KEEP: never trust the wire
+  return !!s && Number.isInteger(s.total) && s.total >= 0 && s.total <= TARGET && (s.turn === 1 || s.turn === 2)
+    && ["playing", "won"].includes(s.status) && Number.isInteger(s.ply) && s.score && s.rematch;
+}
+const clone = (o) => JSON.parse(JSON.stringify(o));
+
+let S = null;                 // current state (host: authoritative, guest: last snapshot)
+let sess = null;              // the SDK session
+let me = 1;                   // 1 = host/TV, 2 = guest/phone
+let sel = 1;                  // my selection (the amount I am about to add)
+let linked = false, everLinked = false, peerLeft = false;
+let pending = false, pendingRev = null, pendingToken = 0;   // guest: my move is on its way
+let oppSel = null;            // the opponent's live selection
+let armed = null;             // touch: first tap selects, second confirms
+const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+let lastFocusSent = 0, focusTimer = null;
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+$("title").textContent = T.title;
+for (let a = 1; a <= 3; a++) {
+  const b = document.createElement("button");
+  b.className = "choice"; b.textContent = a; b.dataset.amount = a;
+  b.addEventListener("click", () => {
+    if (TOUCH && canPlay() && armed !== a) { armed = a; setSel(a); return; }    // touch: select first…
+    sel = a; place();                                                           // …then confirm
+  });
+  $("choices").appendChild(b);
+}
+
+const myTurn = () => !!S && linked && !peerLeft && S.status === "playing" && S.turn === me;
+const canPlay = () => myTurn() && !pending;
+
+function setStatus(text, cls) { $("status").textContent = text; $("status").className = cls; }
+
+function render() {
+  const total = S ? S.total : 0;
+  $("total").textContent = total;
+  $("bar").firstElementChild.style.width = (100 * total / TARGET) + "%";
+  const showOpp = oppSel !== null && !!S && linked && !peerLeft && S.status === "playing" && S.turn === 3 - me;
+  for (const b of $("choices").children) {
+    const a = +b.dataset.amount;
+    b.disabled = !S || a > maxAmount(total) || S.status !== "playing";
+    b.classList.toggle("mine", canPlay() && a === sel);
+    b.classList.toggle("theirs", showOpp && a === oppSel);
+  }
+  const over = !!S && S.status !== "playing";
+  $("me-text").textContent = me === 1 ? T.me1 : T.me2;
+  $("score").textContent = S ? T.score.replace("{me}", S.score[me]).replace("{opp}", S.score[3 - me]) : "";
+  $("hint").textContent = TOUCH ? (over ? "" : T.hintTouch) : (over ? T.hintOver : T.hint);
+
+  let again = false, againText = T.again, againOff = false;
+  if (peerLeft)        setStatus(T.oppLeft, "lose");
+  else if (!linked)    setStatus(everLinked ? T.lost : (me === 1 ? T.waitOpp : T.connecting), "waiting");
+  else if (!S)         setStatus(T.connecting, "waiting");
+  else if (S.status === "playing") S.turn === me ? setStatus(T.yourTurn, "your-turn") : setStatus(T.oppTurn, "waiting");
+  else {
+    setStatus(S.winner === me ? T.youWin : T.youLose, S.winner === me ? "win" : "lose");
+    again = true;
+    if (S.rematch[me]) { againText = T.waitAgain; againOff = true; }
+    else if (S.rematch[3 - me]) againText = T.again + " — " + T.oppAgain;
+  }
+  $("again").classList.toggle("hidden", !again);
+  $("again").textContent = againText;
+  $("again").disabled = againOff;
+}
+
+// ── Live selection ◆ KEEP: the opponent sees your choice BEFORE you validate it ─
+function sendFocus(force) {
+  if (!myTurn()) return;
+  clearTimeout(focusTimer);
+  const wait = force ? 0 : 60 - (Date.now() - lastFocusSent);          // ≤ ~15 messages/s
+  if (wait > 0) { focusTimer = setTimeout(() => sendFocus(true), wait); return; }
+  lastFocusSent = Date.now();
+  sess.send("focus", { amount: sel });
+}
+function setSel(a) { sel = Math.max(1, Math.min(3, a)); render(); sendFocus(); }
+
+// ── State changes: BOTH sides funnel through adopt() ◆ KEEP ────────────────
+function adopt(next) {
+  const prev = S;
+  S = next;
+  // keep my pending move pending until the host has really moved on (rev advanced)
+  if (pending && !(prev && prev.epoch === next.epoch && next.rev <= pendingRev)) pending = false;
+  armed = null; oppSel = null;                 // the opponent re-announces its selection on its turn
+  if (!prev || (prev.status !== "playing" && next.status === "playing")) sel = 1;
+  render();
+  // sounds AFTER drawing/publishing and off this call stack: audio must never delay the other player
+  setTimeout(() => {
+    if (prev && next.total > prev.total) beep(440, 0.09);
+    if (next.status === "won" && (!prev || prev.status === "playing")) next.winner === me ? beep(880, 0.4) : beep(160, 0.4);
+  }, 0);
+  if (myTurn()) sendFocus(true);
+}
+
+// ── HOST: applies the rules ◆ KEEP the publish-first order, ply guard and resync ─
+function hostCommit(next) {
+  next.epoch = EPOCH;
+  next.rev = (S && S.rev || 0) + 1;
+  sess.publishSnapshot(next);                  // FIRST: nothing local may delay the guest's update
+  adopt(next);
+}
+function hostResync() { S.rev = (S.rev || 0) + 1; sess.publishSnapshot(S); }   // same state, new rev
+
+function hostMove(piece, amount, ply) {
+  if (!S || S.status !== "playing" || S.turn !== piece) return false;
+  if (!Number.isInteger(amount) || amount < 1 || amount > maxAmount(S.total)) return false;
+  if (ply !== undefined && ply !== S.ply) return false;      // ◆ a stale/duplicate intent: refuse
+  const next = clone(S);
+  next.total += amount; next.ply += 1;
+  if (next.total === TARGET) { next.status = "won"; next.winner = piece; next.score[piece] += 1; }
+  else next.turn = 3 - piece;
+  hostCommit(next);
+  return true;
+}
+function hostRematch(piece) {
+  if (!S || S.status === "playing") return;
+  const next = clone(S);
+  next.rematch[piece] = true;
+  hostCommit(next.rematch[1] && next.rematch[2] ? newRound(3 - S.starter, next.score) : next);
+}
+
+// ── Local input ────────────────────────────────────────────────────────────
+function place() {
+  if (!canPlay() || sel > maxAmount(S.total)) return;
+  if (me === 1) { hostMove(1, sel); return; }
+  // guest: send an INTENT naming the state it is based on (ply); the host decides
+  pending = true; pendingRev = S.rev;
+  const token = ++pendingToken;
+  sess.send("move", { amount: sel, ply: S.ply });
+  setTimeout(() => {                            // ◆ safety net: if the host never answers, ask again
+    if (pending && token === pendingToken) { pending = false; sess.send("sync"); render(); }
+  }, 4000);
+  render();
+}
+function requestRematch() {
+  if (!S || S.status === "playing" || peerLeft || !linked || S.rematch[me]) return;
+  me === 1 ? hostRematch(1) : sess.send("rematch");
+}
+$("again").addEventListener("click", () => { unlockAudio(); requestRematch(); });
+
+document.addEventListener("keydown", (e) => {
+  unlockAudio();
+  if (e.key === "Escape") { sess.leave(); return; }                 // ◆ Escape = quit
+  if (S && S.status !== "playing") { if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) requestRematch(); return; }
+  if (e.key === "ArrowLeft")  { e.preventDefault(); setSel(sel - 1); }
+  if (e.key === "ArrowRight") { e.preventDefault(); setSel(sel + 1); }
+  if (e.key === "Enter" || e.key === " ") place();
+});
+document.addEventListener("pointerdown", unlockAudio);
+
+// ── Gamepad ◆ KEEP (standard mapping: 14/15 d-pad, 0 = A, 1 = B, 9 = Start) ─
+let gpPrev = [];
+function pollGamepad() {
+  const gp = navigator.getGamepads?.()[0];
+  if (gp) {
+    const hit = (i) => gp.buttons[i]?.pressed && !gpPrev[i];
+    if (S && S.status !== "playing") { if (hit(9)) sess.leave(); else if ([0,1,2,3].some(hit)) requestRematch(); }
+    else {
+      if (hit(14)) setSel(sel - 1);
+      if (hit(15)) setSel(sel + 1);
+      if (hit(0)) place();
+      if (hit(1) || hit(9)) sess.leave();
+    }
+    gpPrev = gp.buttons.map((b) => b.pressed);
+  }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
+// ── The online session ◆ KEEP all of these handlers ────────────────────────
+sess = EldaOnline.connect({
+  getSnapshot: () => S,                                             // host: sent on every (re)join, link-up and every 5 s
+
+  onSnapshot: (snap) => {                                           // guest: the host's authoritative state
+    if (!validSnapshot(snap)) return;
+    if (S && snap.rev !== undefined && snap.epoch === S.epoch && snap.rev === S.rev) return;   // a repeat: nothing changed
+    adopt(snap);
+  },
+
+  onMessage: (type, payload) => {
+    if (type === "focus") {                                         // the opponent's live selection
+      const a = payload && payload.amount;
+      if (Number.isInteger(a) && a >= 1 && a <= 3) { oppSel = a; render(); }
+      return;
+    }
+    if (me !== 1) return;                                           // only the host applies rules
+    let ok = true;
+    if (type === "move")    ok = hostMove(2, payload && payload.amount, payload && payload.ply);
+    if (type === "rematch") hostRematch(2);
+    if (type === "sync" || !ok) hostResync();                       // rejected / asked: resync the guest
+  },
+
+  onLink: (status) => {
+    linked = status === "up";
+    if (linked) everLinked = true; else oppSel = null;
+    render();
+    if (linked) sendFocus(true);
+  },
+  onPeerJoined: () => sendFocus(true),                              // the snapshot just went out and reset the guest's view of my selection
+  onPeerLeft: () => { peerLeft = true; render(); },
+});
+
+me = sess.role === "host" ? 1 : 2;
+document.documentElement.style.setProperty("--me",  me === 1 ? "var(--p1)" : "var(--p2)");
+document.documentElement.style.setProperty("--opp", me === 1 ? "var(--p2)" : "var(--p1)");
+if (me === 1) S = newRound(1);        // the host creates the state; the guest waits for a snapshot
+render();
+
+// ◆ KEEP: lets the test bench compare host and guest (return the SHARED state, i.e. what the host publishes)
+window.eldaDebugState = () => S;
+</script>
+</body>
+</html>

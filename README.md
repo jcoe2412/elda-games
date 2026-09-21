@@ -18,6 +18,9 @@ here *and* an entry in `games.json`.
 
 ## Online (2-player) games
 
+**Want to add one? See [`online/DEVELOPING.md`](online/DEVELOPING.md)** (specification, starter game, test bench) and
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
+
 [`online/`](online/README.md) holds games played by two people on two devices —
 one on the EldaRemote companion app, one on EldaTV. They are listed by
 [`online-games.json`](online-games.json) (not `games.json`), can only be

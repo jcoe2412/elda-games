@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Elda online games — test bench</title>
+<style>
+  :root { --bg:#12121f; --panel:#1a1a2e; --line:#2c2c4d; --text:#e0e0e0; --dim:#8a8aa0; --accent:#6c63ff;
+          --ok:#2fbf4a; --bad:#ff4d4d; --warn:#f5a623; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.4 system-ui, 'Segoe UI', Arial, sans-serif; }
+  header { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; padding:.6rem 1rem; background:var(--panel); border-bottom:1px solid var(--line); }
+  header h1 { font-size:1rem; margin:0 .6rem 0 0; }
+  select, input, button { font:inherit; color:var(--text); background:#23233d; border:1px solid var(--line); border-radius:6px; padding:.3rem .6rem; }
+  button { cursor:pointer; } button:hover { border-color:var(--accent); }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  button.on { background:#7a2b2b; border-color:#b04444; }
+  label { color:var(--dim); }
+  main { padding:1rem; display:flex; flex-direction:column; gap:1rem; }
+  .devices { display:flex; gap:1.5rem; flex-wrap:wrap; align-items:flex-start; }
+  .device h2 { font-size:.9rem; margin:0 0 .3rem; display:flex; gap:.6rem; align-items:center; }
+  .badge { font-size:.75rem; padding:.05rem .5rem; border-radius:99px; background:#2a2a48; color:var(--dim); }
+  .badge.up { background:#1d4a2a; color:#7fe093; } .badge.down { background:#4a1d1d; color:#ff9b9b; }
+  .screen { position:relative; overflow:hidden; background:#000; border:2px solid var(--line); border-radius:8px; }
+  .screen iframe { position:absolute; left:0; top:0; border:0; transform-origin:0 0; background:#0e0e1c; }
+  .panels { display:grid; grid-template-columns:repeat(auto-fit, minmax(340px, 1fr)); gap:1rem; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:.8rem; min-width:0; }
+  .panel h3 { margin:0 0 .5rem; font-size:.9rem; }
+  .row { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin:.3rem 0; }
+  .row label { min-width:7.5rem; } input[type=range] { flex:1; min-width:6rem; padding:0; }
+  .val { min-width:4.5rem; color:var(--dim); text-align:right; font-variant-numeric:tabular-nums; }
+  .sync { font-weight:600; } .sync.ok { color:var(--ok); } .sync.bad { color:var(--bad); } .sync.na { color:var(--dim); }
+  .check { display:grid; grid-template-columns:1.6rem 1fr auto; gap:.4rem; padding:.3rem 0; border-top:1px solid var(--line); align-items:start; }
+  .check:first-of-type { border-top:0; }
+  .check .msg { color:var(--dim); font-size:.8rem; grid-column:2 / 4; }
+  .icon { text-align:center; } .pass .icon { color:var(--ok); } .fail .icon { color:var(--bad); } .warn .icon { color:var(--warn); }
+  .running .icon { color:var(--accent); } .fail .msg { color:#ff9b9b; } .warn .msg { color:#f5c26b; }
+  #log { height:24rem; overflow:auto; font:12px/1.35 ui-monospace, Consolas, monospace; background:#0d0d18; border-radius:6px; padding:.4rem; white-space:pre; }
+  .l-drop { color:#ff9b9b; } .l-dup { color:#f5c26b; } .l-dim { color:#66668a; }
+  small, .hint { color:var(--dim); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Elda online games — test bench</h1>
+  <label>Game <select id="game"></select></label>
+  <label>or id <input id="game-custom" size="14" placeholder="my-game"></label>
+  <label>Language <select id="lang"><option>en</option><option>fr</option><option>nl</option></select></label>
+  <label>TV page loads after <input id="tv-delay" type="number" min="0" step="500" value="0" style="width:5rem"> ms</label>
+  <label>Phone page loads after <input id="ph-delay" type="number" min="0" step="500" value="0" style="width:5rem"> ms</label>
+  <button id="new" class="primary">New session</button>
+  <span class="hint" id="sid"></span>
+</header>
+
+<main>
+  <section class="devices">
+    <div class="device">
+      <h2>TV <small>(host · 1920×1080)</small> <span class="badge" id="tv-badge">—</span> <span class="badge" id="tv-state"></span></h2>
+      <div class="screen" id="tv-screen"></div>
+    </div>
+    <div class="device">
+      <h2>Phone <small>(guest · 390×844)</small> <span class="badge" id="ph-badge">—</span> <span class="badge" id="ph-state"></span></h2>
+      <div class="screen" id="ph-screen"></div>
+    </div>
+    <div style="min-width:14rem">
+      <h2>State</h2>
+      <div>Host and guest state: <span class="sync na" id="sync">n/a</span></div>
+      <p class="hint" id="debug-hint"></p>
+      <p class="hint">Click into a screen to play it with the keyboard, or tap its buttons with the mouse — exactly what the real devices do.</p>
+    </div>
+  </section>
+
+  <section class="panels">
+    <div class="panel">
+      <h3>Simulated network</h3>
+      <div class="row"><label>Latency min</label><input type="range" id="lat-min" min="0" max="3000" step="10" value="0"><span class="val" id="lat-min-v"></span></div>
+      <div class="row"><label>Latency max</label><input type="range" id="lat-max" min="0" max="3000" step="10" value="60"><span class="val" id="lat-max-v"></span></div>
+      <div class="row"><label>Message loss</label><input type="range" id="drop" min="0" max="60" step="1" value="0"><span class="val" id="drop-v"></span></div>
+      <div class="row"><label>Duplicates</label><input type="range" id="dup" min="0" max="60" step="1" value="0"><span class="val" id="dup-v"></span></div>
+      <div class="row">
+        <button id="tv-off">TV offline</button><button id="ph-off">Phone offline</button>
+        <button id="drop-state">Lose TV state messages for 8 s</button>
+      </div>
+      <div class="row">
+        <button id="tv-restart">Restart TV page</button><button id="ph-restart">Restart phone page</button>
+        <button id="ph-esc">Phone presses Esc</button><button id="tv-esc">TV presses Esc</button>
+      </div>
+      <div class="row"><button id="fuzz">Auto-play (random keys + taps)</button>
+        <label style="min-width:0">every</label><input type="number" id="fuzz-ms" value="250" min="20" step="10" style="width:5rem"> ms</div>
+      <p class="hint">The bridge running here is the <b>same code</b> as in EldaTV and the companion app; only the MQTT broker is simulated.</p>
+    </div>
+
+    <div class="panel">
+      <h3>Automatic checks <small id="checks-summary"></small></h3>
+      <div class="row"><button id="run-all" class="primary">Run all checks</button><button id="run-quick">Quick run</button>
+        <span class="hint">Takes ~2 min (quick: ~40 s). Uses the game selected above.</span></div>
+      <div id="checks"></div>
+    </div>
+
+    <div class="panel">
+      <h3>Wire log</h3>
+      <div class="row">
+        <label style="min-width:0"><input type="checkbox" id="f-hb"> hide heartbeats</label>
+        <label style="min-width:0"><input type="checkbox" id="f-focus"> hide focus</label>
+        <button id="log-clear">Clear</button><button id="log-copy">Copy</button>
+      </div>
+      <div id="log"></div>
+    </div>
+  </section>
+</main>
+
+<script src="online-bridge.js"></script>
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const TV_SIZE = { w: 1920, h: 1080 }, PH_SIZE = { w: 390, h: 844 };
+const ORIGIN = location.origin;
+
+// ── Simulated MQTT broker ────────────────────────────────────────────────────
+// Same contract the apps' MQTT clients give the bridge: publish / subscribe /
+// unsubscribe / onConnect. Per (subscriber, topic) delivery is FIFO like MQTT,
+// with configurable latency, loss, duplication and an offline switch per side.
+class Net {
+  constructor(cfg, onEntry) { this.cfg = cfg; this.onEntry = onEntry; this.clients = []; this.lastAt = new Map(); this.t0 = performance.now(); this.stateDropUntil = 0; }
+  stamp() { return (performance.now() - this.t0) / 1000; }
+  client(name) {
+    const net = this, c = { name, online: true, subs: [], connectCbs: [] };
+    const match = (p, t) => p === t || (p.endsWith("/#") && t.startsWith(p.slice(0, -1)));
+    c.adapter = {
+      publish(topic, obj) {
+        const entry = { t: net.stamp(), from: name, topic: topic.split("/").pop(), type: obj && obj.type, seq: obj && obj.seq,
+                        rev: obj && obj.payload && obj.payload.rev, to: [] };
+        if (!c.online) { entry.note = "sender offline — not sent"; net.onEntry(entry); return false; }
+        for (const o of net.clients) {
+          if (!o.online) { entry.to.push({ name: o.name, status: "offline" }); continue; }
+          if (!o.subs.some((s) => match(s.p, topic))) continue;
+          const stateLoss = entry.topic === "state" && name === "host" && performance.now() < net.stateDropUntil;
+          if (stateLoss || Math.random() * 100 < net.cfg.drop) { entry.to.push({ name: o.name, status: "lost" }); continue; }
+          const key = net.clients.indexOf(o) + "|" + topic;
+          const lat = net.cfg.latMin + Math.random() * Math.max(0, net.cfg.latMax - net.cfg.latMin);
+          const at = Math.max((net.lastAt.get(key) || 0) + 1, performance.now() + lat);
+          net.lastAt.set(key, at);
+          const copies = Math.random() * 100 < net.cfg.dup ? 2 : 1;
+          if (copies === 2) entry.to.push({ name: o.name, status: "duplicated" });
+          for (let i = 0; i < copies; i++) {
+            const payload = JSON.parse(JSON.stringify(obj));
+            setTimeout(() => {
+              if (!o.online) return;
+              for (const s of o.subs) if (match(s.p, topic)) { try { s.h(topic, JSON.parse(JSON.stringify(payload))); } catch (e) { console.error(e); } }
+            }, Math.max(0, at - performance.now()) + i * 15);
+          }
+          if (copies === 1) entry.to.push({ name: o.name, status: "ok", ms: Math.round(lat) });
+        }
+        net.onEntry(entry);
+        return true;
+      },
+      subscribe(p, h) { c.subs.push({ p, h }); },
+      unsubscribe(p, h) { c.subs = c.subs.filter((s) => !(s.p === p && s.h === h)); },
+      onConnect(cb) { c.connectCbs.push(cb); },
+      isConnected: () => c.online,
+    };
+    c.setOnline = (on) => { const was = c.online; c.online = on; if (on && !was) c.connectCbs.forEach((cb) => cb()); };
+    net.clients.push(c);
+    return c;
+  }
+}
+
+// ── Session: two frames + two real bridges ───────────────────────────────────
+const cfg = { latMin: 0, latMax: 60, drop: 0, dup: 0 };
+let net = null, sid = "", sides = {}, log = [], session = { game: "", lang: "en" };
+
+function gameUrl(role) { return `../${session.game}/index.html?role=${role}&sid=${sid}&lang=${session.lang}`; }
+
+function scaleFor(role) { return role === "host" ? Math.min(0.32, 620 / TV_SIZE.w) : 540 / PH_SIZE.h; }
+function sizeScreen(role, w, h) {
+  const s = sides[role]; if (!s) return;
+  s.w = w; s.h = h;
+  const avail = Math.max(220, window.innerWidth - 60);           // never wider than the window
+  const k = role === "host" ? Math.min(620, avail) / w : Math.min(540 / h, avail / w);
+  s.screen.style.width = Math.round(w * k) + "px"; s.screen.style.height = Math.round(h * k) + "px";
+  s.frame.style.width = w + "px"; s.frame.style.height = h + "px"; s.frame.style.transform = `scale(${k})`;
+}
+window.addEventListener("resize", () => { for (const s of Object.values(sides)) sizeScreen(s.role, s.w, s.h); });
+
+function makeSide(role, loadDelay) {
+  const screen = $(role === "host" ? "#tv-screen" : "#ph-screen");
+  screen.innerHTML = "";
+  const frame = document.createElement("iframe");
+  frame.setAttribute("sandbox", "allow-scripts allow-same-origin");    // same sandbox as the real apps
+  frame.setAttribute("allow", "gamepad");
+  screen.appendChild(frame);
+  const client = net.client(role);
+  const side = { role, screen, frame, client, bridge: null, ended: null, errors: [], loaded: false, generation: 0 };
+  sides[role] = side;
+  sizeScreen(role, role === "host" ? TV_SIZE.w : PH_SIZE.w, role === "host" ? TV_SIZE.h : PH_SIZE.h);
+
+  frame.addEventListener("load", () => {
+    let href = ""; try { href = frame.contentWindow.location.href; } catch (_) {}
+    if (!href || href === "about:blank") return;
+    side.loaded = true;
+    try {
+      const w = frame.contentWindow;
+      w.addEventListener("error", (e) => side.errors.push(e.message || String(e.error)));
+      w.addEventListener("unhandledrejection", (e) => side.errors.push("unhandled promise rejection: " + (e.reason && e.reason.message || e.reason)));
+      const ce = w.console.error; w.console.error = (...a) => { side.errors.push("console.error: " + a.join(" ")); ce.apply(w.console, a); };
+    } catch (_) {}
+  });
+
+  // The bridge starts at once (exactly like the apps: the frame src is set and the bridge starts in the
+  // same tick); the page itself arrives loadDelay ms later, as it would over a slow connection.
+  side.bridge = EldaOnlineBridge.start({
+    mqtt: client.adapter, iframe: frame, portalOrigin: ORIGIN, sid, role,
+    onLink: () => {}, onEnded: (reason, detail) => { side.ended = reason + (detail ? "/" + detail : ""); },
+  });
+  setTimeout(() => { if (sides[role] === side) frame.src = gameUrl(role); }, loadDelay || 0);
+  return side;
+}
+
+function newSession(opts = {}) {
+  for (const s of Object.values(sides)) { try { s.client.setOnline(false); s.bridge.stop(); } catch (_) {} }
+  sides = {}; log = []; renderLog();
+  session.game = opts.game || currentGame(); session.lang = opts.lang || $("#lang").value;
+  sid = Math.random().toString(36).slice(2, 12);
+  net = new Net(cfg, (e) => { log.push(e); if (log.length > 1500) log.shift(); logDirty = true; });
+  $("#sid").textContent = `session ${sid}`;
+  makeSide("guest", opts.phDelay ?? +$("#ph-delay").value);        // the phone launches first, then the TV wakes up
+  setTimeout(() => makeSide("host", opts.tvDelay ?? +$("#tv-delay").value), 300);
+  return new Promise((r) => setTimeout(r, 350));
+}
+
+function restartPage(role) {                                        // the page is killed and comes back: new state, new epoch
+  const old = sides[role]; if (!old) return;
+  old.client.setOnline(false); try { old.bridge.stop(); } catch (_) {}
+  old.client.subs = [];
+  makeSide(role, 0);
+}
+
+// ── Helpers to look at / drive the games (same-origin frames) ────────────────
+const debugState = (role) => { try { const f = sides[role].frame.contentWindow.eldaDebugState; if (!f) return undefined; const v = f(); return v == null ? null : JSON.stringify(v); } catch (_) { return undefined; } };   // null = the game has no state yet
+const hasDebug = () => ["host", "guest"].every((r) => { try { return typeof sides[r].frame.contentWindow.eldaDebugState === "function"; } catch (_) { return false; } });
+
+function sendKey(role, key) {
+  const w = sides[role] && sides[role].frame.contentWindow; if (!w || !w.document || !w.document.body) return;
+  w.document.body.dispatchEvent(new w.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+}
+function clickables(w) {
+  return [...w.document.body.querySelectorAll("*")].filter((el) => {
+    if (el.disabled) return false;
+    const cs = w.getComputedStyle(el);
+    if (cs.cursor !== "pointer" || cs.visibility === "hidden" || cs.display === "none") return false;
+    const r = el.getBoundingClientRect(); return r.width > 8 && r.height > 8;
+  });
+}
+function randomInput(role) {
+  const w = sides[role] && sides[role].frame.contentWindow; if (!w || !w.document || !w.document.body) return;
+  if (Math.random() < 0.55) sendKey(role, ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Enter", " ", "Enter"][Math.floor(Math.random() * 7)]);
+  else { const c = clickables(w); if (c.length) c[Math.floor(Math.random() * c.length)].click(); }
+}
+let fuzzTimer = null;
+function setFuzz(on, ms) {
+  clearInterval(fuzzTimer); fuzzTimer = null;
+  $("#fuzz").classList.toggle("on", !!on);
+  if (on) fuzzTimer = setInterval(() => { randomInput(Math.random() < 0.5 ? "host" : "guest"); if (Math.random() < 0.2) randomInput("host"); }, ms || +$("#fuzz-ms").value || 250);
+}
+
+// ── Live status ──────────────────────────────────────────────────────────────
+let unsyncedSince = null;
+function refresh() {
+  for (const [role, id] of [["host", "tv"], ["guest", "ph"]]) {
+    const s = sides[role]; if (!s) continue;
+    const b = $(`#${id}-badge`), link = s.bridge.link;
+    b.textContent = !s.client.online ? "offline" : (s.loaded ? "link " + link : "page loading…");
+    b.className = "badge " + (!s.client.online || link === "down" ? "down" : "up");
+    const st = debugState(role);
+    let txt = ""; try { if (st) { const o = JSON.parse(st); txt = o.rev !== undefined ? "rev " + o.rev : "state ✓"; } else if (s.loaded) txt = "no state"; } catch (_) {}
+    $(`#${id}-state`).textContent = txt;
+  }
+  const d = $("#sync");
+  if (!sides.host || !sides.guest) return;
+  if (!hasDebug()) { d.textContent = "n/a"; d.className = "sync na"; $("#debug-hint").textContent = "Expose window.eldaDebugState = () => sharedState in your game to enable state comparison and the convergence checks."; return; }
+  $("#debug-hint").textContent = "";
+  const a = debugState("host"), b = debugState("guest");
+  if (a && b && a === b) { d.textContent = "in sync ✓"; d.className = "sync ok"; unsyncedSince = null; }
+  else { unsyncedSince = unsyncedSince || performance.now(); const s = (performance.now() - unsyncedSince) / 1000;
+         d.textContent = s > 8 ? `OUT OF SYNC for ${s.toFixed(0)} s` : "settling…"; d.className = "sync " + (s > 8 ? "bad" : "na"); }
+}
+setInterval(refresh, 300);
+
+// ── Wire log ─────────────────────────────────────────────────────────────────
+let logDirty = false;
+function renderLog() {
+  const hideHb = $("#f-hb").checked, hideFocus = $("#f-focus").checked;
+  const el = $("#log"), atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20;
+  const lines = [];
+  for (const e of log.slice(-400)) {
+    if (hideHb && e.type === "hb") continue;
+    if (hideFocus && e.type === "focus") continue;
+    const dir = e.from === "host" ? "TV→phone" : "phone→TV";
+    const res = e.note ? e.note : e.to.map((t) => (t.name === e.from ? "" : (t.status === "ok" ? `✓ ${t.ms}ms` : t.status))).filter(Boolean).join(", ");
+    const cls = /lost|offline/.test(res) ? "l-drop" : /duplicated/.test(res) ? "l-dup" : "";
+    lines.push(`<span class="${cls}">${e.t.toFixed(2).padStart(7)}s  ${dir.padEnd(9)} ${(e.topic + "/" + (e.type || "")).padEnd(16)} seq…${String(e.seq).slice(-5)}${e.rev !== undefined ? " rev " + e.rev : ""}  ${res}</span>`);
+  }
+  el.innerHTML = lines.join("\n"); if (atBottom) el.scrollTop = el.scrollHeight;
+}
+setInterval(() => { if (logDirty) { logDirty = false; renderLog(); } }, 300);
+$("#f-hb").onchange = $("#f-focus").onchange = renderLog;
+$("#log-clear").onclick = () => { log = []; renderLog(); };
+$("#log-copy").onclick = () => navigator.clipboard && navigator.clipboard.writeText($("#log").textContent);
+
+// ── Controls ─────────────────────────────────────────────────────────────────
+function bindRange(id, key) { const el = $("#" + id), v = $("#" + id + "-v"); const upd = () => { cfg[key] = +el.value; v.textContent = el.value + (key === "drop" || key === "dup" ? " %" : " ms"); }; el.oninput = upd; upd(); }
+bindRange("lat-min", "latMin"); bindRange("lat-max", "latMax"); bindRange("drop", "drop"); bindRange("dup", "dup");
+function toggleOffline(role, btn) { const s = sides[role]; if (!s) return; const on = s.client.online; s.client.setOnline(!on); btn.classList.toggle("on", on); btn.textContent = (role === "host" ? "TV" : "Phone") + (on ? " back online" : " offline"); }
+$("#tv-off").onclick = (e) => toggleOffline("host", e.target);
+$("#ph-off").onclick = (e) => toggleOffline("guest", e.target);
+$("#drop-state").onclick = () => { net.stateDropUntil = performance.now() + 8000; };
+$("#tv-restart").onclick = () => restartPage("host");
+$("#ph-restart").onclick = () => restartPage("guest");
+$("#ph-esc").onclick = () => sendKey("guest", "Escape");
+$("#tv-esc").onclick = () => sendKey("host", "Escape");
+$("#fuzz").onclick = () => setFuzz(!fuzzTimer);
+$("#new").onclick = () => { setFuzz(false); for (const id of ["tv-off", "ph-off"]) { $("#" + id).classList.remove("on"); $("#" + id).textContent = id === "tv-off" ? "TV offline" : "Phone offline"; } newSession(); };
+
+async function loadGames() {
+  const sel = $("#game"); sel.innerHTML = "";
+  let games = [];
+  try { const m = await (await fetch("../../online-games.json", { cache: "no-cache" })).json(); games = (m.games || []).map((g) => g.id); } catch (_) {}
+  for (const id of [...games, "_template"]) { const o = document.createElement("option"); o.value = id; o.textContent = id === "_template" ? "_template (starter)" : id; sel.appendChild(o); }
+  const q = new URLSearchParams(location.search);
+  if (q.get("game")) { if (![...sel.options].some((o) => o.value === q.get("game"))) { $("#game-custom").value = q.get("game"); } else sel.value = q.get("game"); }
+  if (q.get("lang")) $("#lang").value = q.get("lang");
+}
+const currentGame = () => ($("#game-custom").value.trim() || $("#game").value).replace(/[^a-z0-9_-]/gi, "");
+
+// ── Automatic checks ─────────────────────────────────────────────────────────
+class Ctx {
+  constructor(quick) { this.quick = quick; }
+  d(ms) { return this.quick ? Math.max(1500, Math.round(ms / 3)) : ms; }
+  async start(o = {}) {
+    Object.assign(cfg, { latMin: 0, latMax: 60, drop: 0, dup: 0 }, o.net || {});
+    for (const k of ["lat-min", "lat-max", "drop", "dup"]) { const key = { "lat-min": "latMin", "lat-max": "latMax", drop: "drop", dup: "dup" }[k]; $("#" + k).value = cfg[key]; $("#" + k).dispatchEvent(new Event("input")); }
+    setFuzz(false);
+    this.t0 = performance.now();
+    await newSession({ tvDelay: o.tvDelay || 0, phDelay: o.phDelay || 0 });
+  }
+  wait(ms) { return sleep(ms); }
+  async waitFor(pred, ms, what) {
+    const t0 = performance.now();
+    while (performance.now() - t0 < ms) { let v; try { v = pred(); } catch (_) { v = false; } if (v) return performance.now() - t0; await sleep(100); }
+    throw new Error("timed out after " + Math.round(ms / 1000) + " s waiting for: " + what);
+  }
+  bothLinked() { return sides.host && sides.guest && sides.host.bridge.link === "up" && sides.guest.bridge.link === "up"; }
+  inSync() { const a = debugState("host"), b = debugState("guest"); return !!a && !!b && a === b; }
+  async converge(ms, what) {
+    if (!hasDebug()) return null;
+    return this.waitFor(() => this.inSync(), ms, (what || "host and guest to hold the same state") + `\n   host:  ${debugState("host")}\n   guest: ${debugState("guest")}`);
+  }
+  async play(ms) { setFuzz(true, this.quick ? 120 : 200); await sleep(ms); }
+  async stopPlay() { setFuzz(false); }
+  noErrors() { for (const r of ["host", "guest"]) { const e = sides[r].errors; if (e.length) throw new Error(`${r === "host" ? "TV" : "phone"} page reported an error: ${e[0]}`); } }
+  async requireDebug() {
+    await this.waitFor(() => sides.host && sides.guest && sides.host.loaded && sides.guest.loaded, 40000, "both game pages to load (is the game id right?)");
+    await this.wait(300);
+    if (!hasDebug()) { const e = new Error("window.eldaDebugState is not defined by the game — state comparison skipped"); e.warn = true; throw e; }
+  }
+  sinceStart() { return Math.round((performance.now() - this.t0) / 1000); }
+  async gameSource() { return (await fetch(`../${currentGame()}/index.html`, { cache: "no-cache" })).text(); }
+}
+
+const CHECKS = [
+  { id: "boot", name: "Both pages load, run without errors and link up", run: async (c) => {
+      await c.start(); const ms = await c.waitFor(() => c.bothLinked(), 20000, "both sides to report the link up");
+      await c.wait(1000); c.noErrors(); return `linked ${c.sinceStart()} s after launch`; } },
+  { id: "state", name: "The guest receives the host's state", run: async (c) => {
+      await c.start(); await c.requireDebug(); await c.waitFor(() => !!debugState("guest"), 15000, "the guest to hold a state");
+      await c.converge(8000); return "in sync"; } },
+  { id: "input", name: "Keyboard / taps change the game", run: async (c) => {
+      await c.start(); await c.requireDebug(); await c.converge(15000); const before = debugState("host");
+      await c.play(c.d(8000)); await c.stopPlay();
+      if (debugState("host") === before && debugState("guest") === debugState("host")) throw new Error("no key press or tap changed the state in 8 s — are the handlers attached to document and the buttons real, clickable elements?");
+      c.noErrors(); return "state changes with input"; } },
+  { id: "latecomer", name: "TV page loads 8 s after the phone (slow start)", run: async (c) => {
+      await c.start({ tvDelay: 8000 }); await c.requireDebug(); await c.converge(15000, "the guest to get the state after the TV page finally loaded");
+      return `converged ${c.sinceStart()} s after launch (TV page took 8 s)`; } },
+  { id: "phone-late", name: "Phone page loads 8 s after the TV", run: async (c) => {
+      await c.start({ phDelay: 8000 }); await c.requireDebug(); await c.converge(15000, "the guest to get the state after ITS page finally loaded");
+      return `converged ${c.sinceStart()} s after launch (phone page took 8 s)`; } },
+  { id: "lost-state", name: "The host's first states are lost for 8 s", run: async (c) => {
+      await c.start(); net.stateDropUntil = performance.now() + 8000; await c.requireDebug();
+      await c.converge(20000, "the guest to recover once state messages get through again"); return `recovered ${c.sinceStart()} s after launch`; } },
+  { id: "play", name: "Fast random play, 0–800 ms latency", run: async (c) => {
+      await c.start({ net: { latMax: 800 } }); await c.requireDebug(); await c.converge(15000);
+      await c.play(c.d(15000)); await c.stopPlay(); await c.converge(15000, "both sides to agree after play stopped"); c.noErrors(); return "in sync after fast play"; } },
+  { id: "hostile", name: "Bad network: up to 3 s latency, 20 % duplicated, 5 % lost", run: async (c) => {
+      await c.start({ net: { latMax: 3000, dup: 20, drop: 5 } }); await c.requireDebug(); await c.converge(30000);
+      await c.play(c.d(20000)); await c.stopPlay(); Object.assign(cfg, { latMax: 200, drop: 0, dup: 0 });
+      await c.converge(30000, "both sides to agree once the network calmed down"); c.noErrors(); return "in sync"; } },
+  { id: "phone-offline", name: "Phone goes offline for 8 s during play", run: async (c) => {
+      await c.start(); await c.requireDebug(); await c.converge(15000); await c.play(c.d(5000));
+      sides.guest.client.setOnline(false); await c.wait(8000); sides.guest.client.setOnline(true);
+      await c.play(c.d(4000)); await c.stopPlay(); await c.converge(20000, "the phone to catch up after reconnecting"); c.noErrors(); return "caught up"; } },
+  { id: "tv-offline", name: "TV goes offline for 8 s during play", run: async (c) => {
+      await c.start(); await c.requireDebug(); await c.converge(15000); await c.play(c.d(5000));
+      sides.host.client.setOnline(false); await c.wait(8000); sides.host.client.setOnline(true);
+      await c.play(c.d(4000)); await c.stopPlay(); await c.converge(20000, "both sides to agree after the TV reconnected"); c.noErrors(); return "caught up"; } },
+  { id: "tv-restart", name: "TV page restarts mid-game", run: async (c) => {
+      await c.start(); await c.requireDebug(); await c.converge(15000); await c.play(c.d(5000)); await c.stopPlay();
+      restartPage("host"); const ms = await c.converge(20000, "the phone to follow the restarted TV page"); return `followed in ${Math.round(ms / 1000)} s`; } },
+  { id: "leave", name: "Esc on one side ends the session on the other", run: async (c) => {
+      await c.start(); await c.waitFor(() => c.bothLinked(), 20000, "link"); sendKey("guest", "Escape");
+      await c.waitFor(() => sides.host.ended === "peer_left/local_back", 6000, "the TV to be told the phone quit (peer_left)");
+      if (sides.guest.ended !== "local_back") throw new Error("the phone bridge did not report local_back (Esc must call sess.leave())");
+      await c.start(); await c.waitFor(() => c.bothLinked(), 20000, "link"); sendKey("host", "Escape");
+      await c.waitFor(() => sides.guest.ended === "peer_left/local_back", 6000, "the phone to be told the TV quit"); return "both directions"; } },
+  { id: "layout", name: "No scrolling / overflow: TV 1920×1080 & 1280×720, phone 390×844 & 360×640", run: async (c) => {
+      await c.start(); await c.waitFor(() => c.bothLinked(), 20000, "link"); await c.wait(500);
+      for (const [role, w, h] of [["host", 1920, 1080], ["host", 1280, 720], ["guest", 390, 844], ["guest", 360, 640]]) {
+        sizeScreen(role, w, h); await c.wait(400);
+        const de = sides[role].frame.contentWindow.document.documentElement, b = sides[role].frame.contentWindow.document.body;
+        const ox = Math.max(de.scrollWidth, b.scrollWidth) - de.clientWidth, oy = Math.max(de.scrollHeight, b.scrollHeight) - de.clientHeight;
+        if (ox > 2 || oy > 2) throw new Error(`${role === "host" ? "TV" : "phone"} at ${w}×${h}: content overflows the screen by ${Math.max(ox, 0)} px horizontally / ${Math.max(oy, 0)} px vertically`);
+      }
+      sizeScreen("host", TV_SIZE.w, TV_SIZE.h); sizeScreen("guest", PH_SIZE.w, PH_SIZE.h); return "fits all four"; } },
+  { id: "no-tts", name: "No text-to-speech (online games run during a video call)", run: async (c) => {
+      const src = await c.gameSource(); for (const w of ["speechSynthesis", "SpeechSynthesisUtterance"]) if (src.includes(w)) throw new Error(`the game uses ${w}`); return "no speech API used"; } },
+];
+
+function renderChecks() {
+  $("#checks").innerHTML = CHECKS.map((c) => `<div class="check" id="ck-${c.id}"><span class="icon">○</span><span>${c.name}</span><span class="time"></span><span class="msg"></span></div>`).join("");
+}
+function setCheck(id, cls, icon, msg, time) {
+  const el = $("#ck-" + id); el.className = "check " + cls; el.querySelector(".icon").textContent = icon;
+  el.querySelector(".msg").textContent = msg || ""; el.querySelector(".time").textContent = time || "";
+}
+let running = false;
+async function runChecks(quick, only) {
+  if (running) return; running = true; const ctx = new Ctx(quick);
+  $("#run-all").disabled = $("#run-quick").disabled = true; renderChecks(); $("#checks-summary").textContent = "";
+  let pass = 0, fail = 0, warn = 0;
+  for (const c of CHECKS) {
+    if (only && !only.includes(c.id)) continue;
+    setCheck(c.id, "running", "⏳", "");
+    const t0 = performance.now();
+    try { const msg = await c.run(ctx); setCheck(c.id, "pass", "✓", msg, ((performance.now() - t0) / 1000).toFixed(0) + " s"); pass++; }
+    catch (e) { if (e.warn) { setCheck(c.id, "warn", "!", e.message); warn++; } else { setCheck(c.id, "fail", "✗", e.message, ((performance.now() - t0) / 1000).toFixed(0) + " s"); fail++; } }
+    setFuzz(false);
+  }
+  $("#checks-summary").textContent = `— ${pass} passed, ${fail} failed${warn ? ", " + warn + " skipped" : ""}`;
+  $("#run-all").disabled = $("#run-quick").disabled = false; running = false;
+}
+$("#run-all").onclick = () => runChecks(false);
+$("#run-quick").onclick = () => runChecks(true);
+window.benchRun = runChecks;            // for scripts: await benchRun(true) or benchRun(true, ['boot','state'])
+
+renderChecks();
+loadGames().then(() => newSession());
+</script>
+</body>
+</html>

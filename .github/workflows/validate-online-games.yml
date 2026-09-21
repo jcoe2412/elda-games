@@ -1,0 +1,26 @@
+name: Validate online games
+
+# Static checks (manifest + every online game folder). The behavioural checks
+# live in the browser test bench: online/dev/index.html (see online/DEVELOPING.md).
+on:
+  pull_request:
+    paths:
+      - "online/**"
+      - "online-games.json"
+      - ".github/workflows/validate-online-games.yml"
+  push:
+    branches: [ main ]
+    paths:
+      - "online/**"
+      - "online-games.json"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Validate manifest and games
+        run: node online/dev/validate.js

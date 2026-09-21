@@ -626,6 +626,9 @@ document.documentElement.style.setProperty("--me",  me === 1 ? "var(--p1)" : "va
 document.documentElement.style.setProperty("--opp", me === 1 ? "var(--p2)" : "var(--p1)");
 if (me === 1) S = newRound(1);   // host moves first in round 1; guest waits for a snapshot
 render();
+
+// lets the test bench (online/dev) compare the host's and the guest's state
+window.eldaDebugState = () => S;
 </script>
 </body>
 </html>
