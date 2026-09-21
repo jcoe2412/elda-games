@@ -52,6 +52,10 @@ The parent opens `<portal_url>/online/<id>/index.html?…` with:
 
 ## The SDK
 
+> *Test hook.* The test bench (`dev/`) is **same-origin** with the game, so the SDK lets it observe traffic through
+> `parent.__eldaOnlineTest(event, role, data)` (`send`, `message-before`, `message-after`). In the real apps the parent page is
+> cross-origin, reading it throws and is ignored: it has no effect in production and games never need to know about it.
+
 ```html
 <script src="../elda-online.js"></script>
 <script>

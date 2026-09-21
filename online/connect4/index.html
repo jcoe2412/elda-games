@@ -629,6 +629,18 @@ render();
 
 // lets the test bench (online/dev) compare the host's and the guest's state
 window.eldaDebugState = () => S;
+// optional: the bench calls this on every state it sees; return null, or a message if the state is impossible
+window.eldaDebugInvariant = (s) => {
+  let a = 0, b = 0;
+  for (let c = 0; c < COLS; c++) {
+    let empty = false;
+    for (let r = ROWS - 1; r >= 0; r--) {
+      const v = s.board[r][c];
+      if (v === 0) empty = true; else if (empty) return "floating piece in column " + c; else if (v === 1) a++; else b++;
+    }
+  }
+  return Math.abs(a - b) > 1 ? `piece imbalance ${a}/${b}` : null;
+};
 </script>
 </body>
 </html>

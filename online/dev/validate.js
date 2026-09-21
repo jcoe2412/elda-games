@@ -69,6 +69,8 @@ function validateGame(id) {
   if (!/\.leave\s*\(/.test(src)) err(where, "never calls sess.leave() — Escape / the gamepad's back button must quit the game");
   if (!/name=["']viewport["']/.test(src)) warn(where, 'no <meta name="viewport"> — the phone layout will not scale');
   if (!/eldaDebugState/.test(src)) warn(where, "does not define window.eldaDebugState — the bench cannot compare host and guest state");
+  if (!/eldaDebugInvariant/.test(src)) warn(where, "does not define window.eldaDebugInvariant (R34) — the bench cannot flag impossible states");
+  if (!/send\(\s*["']move["']/.test(src)) warn(where, `never sends a message of type "move" (R18) — the bench's stale/duplicate-move check has nothing to check`);
 
   // Things online games must NOT do
   for (const w of ["speechSynthesis", "SpeechSynthesisUtterance"]) if (src.includes(w)) err(where, `uses ${w}: online games run during a video call and must not speak`);

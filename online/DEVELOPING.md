@@ -123,7 +123,7 @@ left the phone one move behind until someone happened to move (→ R9/R15 and th
 ### 3.5 Messages
 
 * **R18** — Use these names, so every game behaves the same way: `move` (an intent, guest → host), `focus` (a live
-  selection, either way), `rematch`, `sync`. Other game-specific types are fine.
+  selection, either way), `rematch`, `sync`. Other game-specific types are fine. The bench checks the intents you send with the type **`move`** (see the *stale or duplicate* check in §4.2), so use that name for the message that carries a player's choice.
 * **R19** — Payloads MUST be JSON of at most **16 KB**; the `type` is a string of at most **32 characters**. Send at most
   ~15 `focus` messages per second (throttle to ≥ 60 ms).
 
@@ -185,7 +185,13 @@ Two very different screens must work from the same file:
 
 * **R33** — Define `window.eldaDebugState = () => state;` returning the **shared** (host-published) state, JSON-serialisable.
   The bench uses it to check that host and guest agree and to tell whether input changed anything. Without it the
-  convergence checks are skipped and reviewers cannot verify your game.
+  convergence checks are skipped and reviewers cannot verify your game. Compare states *without* `rev` and `epoch`
+  in mind: keep the state deterministic (no timestamps or random values inside it), or the comparison reports
+  differences that are not bugs.
+* **R34** — You SHOULD also define `window.eldaDebugInvariant = (state) => null | "message"`, returning a short message when
+  a state is **impossible** (a floating piece in Connect 4, a total above the target, …). The bench calls it on every state
+  either side shows during every play-based check, so a rules bug is reported the moment the impossible state appears —
+  with the state's message — instead of as a vague "states differ" later.
 
 ### 3.12 The manifest entry
 
@@ -219,7 +225,7 @@ Serve the repo (`node online/dev/serve.js`, or `python -m http.server 8080`) and
   sandboxed iframe, exactly like the apps, connected by the **real bridge code** the apps ship
   ([`dev/online-bridge.js`](dev/online-bridge.js)) over a **simulated MQTT network**.
 * Click a screen and use the keyboard, or tap its buttons with the mouse.
-* **Simulated network** — latency, message loss, duplicated messages, "TV/phone offline", "lose the TV's state messages
+* **Simulated network** — latency, message loss, duplicated messages (delivered *late*, like an MQTT retransmit), "TV/phone offline", "lose the TV's state messages
   for 8 s", restart either page, make either side press Esc, and **Auto-play** (random keys and taps from both players).
   Also set how long each page takes to load, to reproduce a slow start.
 * **State** — shows whether host and guest hold the same state (needs `eldaDebugState`, R33).
@@ -228,7 +234,7 @@ Serve the repo (`node online/dev/serve.js`, or `python -m http.server 8080`) and
 
 ### 4.2 The automatic checks
 
-**Run all checks** (about two minutes; **Quick run** about 40 s) plays your game through the situations that broke real
+**Run all checks** (about three minutes; **Quick run** about one) plays your game through the situations that broke real
 games. Every check must pass before you open a pull request.
 
 | Check | What it does | If it fails |
@@ -240,14 +246,25 @@ games. Every check must pass before you open a pull request.
 | Phone page loads 8 s after the TV | slow phone start | the guest must draw *something* before it has a state (R20) and adopt the first snapshot it gets |
 | The host's first states are lost for 8 s | drops the host's state messages | do not depend on one initial snapshot; keep `getSnapshot` correct at all times |
 | Fast random play, 0–800 ms latency | random input on both sides, then compares states | R10–R15: publish first, `rev`, `ply` guard, pending handling |
-| Bad network: 3 s latency, 20 % duplicated, 5 % lost | same, hostile | same; also R12 (ignore repeats) |
+| Bad network: 3 s latency, 20 % late duplicates, 5 % lost | same, hostile | same; also R12 (ignore repeats) |
+| A stale or duplicate `move` from the phone is never applied | mostly phone input on a network that delivers late duplicates; records every `move` the phone sends together with the state it was based on, and every `move` the host *applies* | the host applied a move the phone did not send from that state: add the `ply` guard (R13) and the pending handling (R14) |
 | Phone / TV goes offline for 8 s during play | offline in the middle of a game | the returning side must catch up: `getSnapshot` complete (R9), no state kept outside the snapshot |
 | TV page restarts mid-game | the host page is killed and reloaded | a new `epoch` must be accepted by the guest (R10/R12) |
 | Esc on one side ends the session on the other | presses Escape on each side | call `sess.leave()` on Escape (R22) |
 | No scrolling / overflow at 4 sizes | 1920×1080, 1280×720, 390×844, 360×640 | R29/R30 |
 | No text-to-speech | scans the source | remove `speechSynthesis` (R32) |
 
-A check that says **skipped** (yellow) means the game has no `eldaDebugState` (R33).
+A check that says **skipped** (yellow) means the game has no `eldaDebugState` (R33), or — for the *stale or duplicate* check —
+that the phone never sent a `move` (R18).
+
+Three **observers** also watch *every* play-based check, whichever check is running, and fail it with their own message:
+
+* **stale / duplicate moves** — as described above (needs `eldaDebugState`, and the `move` type);
+* **impossible states** — whatever your `eldaDebugInvariant` (R34) reports;
+* **going back in time** — the state's `rev` must never decrease within one `epoch` on either side (a stale snapshot was adopted, R12).
+
+The bridge already drops network-level duplicates, so a duplicate `move` can only come from **the game itself** sending twice
+(a double tap, a retry timer, a stale snapshot releasing input too early) and a host that applies it. That is what the check catches.
 
 ### 4.3 The static validator
 

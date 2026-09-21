@@ -334,6 +334,9 @@ render();
 
 // ◆ KEEP: lets the test bench compare host and guest (return the SHARED state, i.e. what the host publishes)
 window.eldaDebugState = () => S;
+// ◆ OPTIONAL but recommended: the bench calls this on every state it sees during the checks.
+//   Return null when the state is possible, or a short message when it is not (an impossible state = a bug).
+window.eldaDebugInvariant = (s) => (s.total < 0 || s.total > TARGET) ? "total out of range: " + s.total : null;
 </script>
 </body>
 </html>

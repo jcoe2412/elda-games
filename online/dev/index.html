@@ -93,7 +93,7 @@
     <div class="panel">
       <h3>Automatic checks <small id="checks-summary"></small></h3>
       <div class="row"><button id="run-all" class="primary">Run all checks</button><button id="run-quick">Quick run</button>
-        <span class="hint">Takes ~2 min (quick: ~40 s). Uses the game selected above.</span></div>
+        <span class="hint">Takes ~3 min (quick: ~1 min). Uses the game selected above.</span></div>
       <div id="checks"></div>
     </div>
 
@@ -145,10 +145,12 @@ class Net {
           if (copies === 2) entry.to.push({ name: o.name, status: "duplicated" });
           for (let i = 0; i < copies; i++) {
             const payload = JSON.parse(JSON.stringify(obj));
+            // A duplicate is what an MQTT retransmit looks like: it arrives LATE, after later messages, out of FIFO order.
+            const when = i === 0 ? at : performance.now() + lat + 300 + Math.random() * (2 * net.cfg.latMax + 1500);
             setTimeout(() => {
               if (!o.online) return;
               for (const s of o.subs) if (match(s.p, topic)) { try { s.h(topic, JSON.parse(JSON.stringify(payload))); } catch (e) { console.error(e); } }
-            }, Math.max(0, at - performance.now()) + i * 15);
+            }, Math.max(0, when - performance.now()));
           }
           if (copies === 1) entry.to.push({ name: o.name, status: "ok", ms: Math.round(lat) });
         }
@@ -219,7 +221,7 @@ function makeSide(role, loadDelay) {
 
 function newSession(opts = {}) {
   for (const s of Object.values(sides)) { try { s.client.setOnline(false); s.bridge.stop(); } catch (_) {} }
-  sides = {}; log = []; renderLog();
+  sides = {}; log = []; renderLog(); obs.reset();
   session.game = opts.game || currentGame(); session.lang = opts.lang || $("#lang").value;
   sid = Math.random().toString(36).slice(2, 12);
   net = new Net(cfg, (e) => { log.push(e); if (log.length > 1500) log.shift(); logDirty = true; });
@@ -240,6 +242,45 @@ function restartPage(role) {                                        // the page 
 const debugState = (role) => { try { const f = sides[role].frame.contentWindow.eldaDebugState; if (!f) return undefined; const v = f(); return v == null ? null : JSON.stringify(v); } catch (_) { return undefined; } };   // null = the game has no state yet
 const hasDebug = () => ["host", "guest"].every((r) => { try { return typeof sides[r].frame.contentWindow.eldaDebugState === "function"; } catch (_) { return false; } });
 
+// ── Observers: the game-agnostic half of the old fuzz tests ───────────────────
+// (1) stale/duplicate intents: every 'move' the guest sends is recorded with the state it was based on; every
+//     'move' the host applies (its state changed) is checked against that. An applied move nobody sent from that
+//     state is a stale or duplicate move that got through.   (2) state never goes back in time (rev, per epoch).
+// (3) the game's own eldaDebugInvariant(state), if defined.
+const stable = (v) => JSON.stringify(v, (k, x) => (x && typeof x === "object" && !Array.isArray(x)) ? Object.keys(x).sort().reduce((o, key) => (o[key] = x[key], o), {}) : x);
+const fpOf = (o) => { if (o == null) return "null"; const c = JSON.parse(JSON.stringify(o)); if (c && typeof c === "object") { delete c.rev; delete c.epoch; } return stable(c); };
+const stateObj = (role) => { try { const f = sides[role].frame.contentWindow.eldaDebugState; return f ? f() : undefined; } catch (_) { return undefined; } };
+const obs = { sent: new Set(), sentCount: 0, applied: 0, stack: [], violations: [], lastRev: {},
+  reset() { this.sent = new Set(); this.sentCount = 0; this.applied = 0; this.stack = []; this.violations = []; this.lastRev = {}; },
+  add(msg) { if (this.violations.length < 20 && !this.violations.includes(msg)) this.violations.push(msg); } };
+window.__eldaOnlineTest = (event, role, data) => {                  // called by elda-online.js (same-origin parent only)
+  if (!data || data.type !== "move") return;
+  if (event === "send" && role === "guest") { obs.sentCount++; obs.sent.add(fpOf(stateObj("guest")) + "|" + stable(data.payload)); }
+  else if (event === "message-before" && role === "host") obs.stack.push({ fp: fpOf(stateObj("host")), payload: data.payload });
+  else if (event === "message-after" && role === "host") {
+    const b = obs.stack.pop(); if (!b) return;
+    if (fpOf(stateObj("host")) !== b.fp) {                            // the host applied it
+      obs.applied++;
+      if (!obs.sent.has(b.fp + "|" + stable(b.payload))) obs.add(`the host applied a 'move' ${JSON.stringify(b.payload)} that the guest did not send from this state — a stale or duplicate move got through (R13)\n   state it hit: ${b.fp}`);
+    }
+  }
+};
+setInterval(() => {
+  for (const role of ["host", "guest"]) {
+    const s = sides[role]; if (!s || !s.loaded) continue;
+    const who = role === "host" ? "TV" : "phone";
+    let o; try { o = stateObj(role); } catch (_) { continue; }
+    if (o == null) continue;
+    try { const inv = s.frame.contentWindow.eldaDebugInvariant; if (typeof inv === "function") { const m = inv(o); if (m) obs.add(`${who}: impossible state (eldaDebugInvariant): ${m}`); } }
+    catch (e) { obs.add(`${who}: eldaDebugInvariant threw: ${e.message}`); }
+    if (typeof o === "object" && o.epoch !== undefined && typeof o.rev === "number") {
+      const last = obs.lastRev[role];
+      if (last && last.epoch === o.epoch && o.rev < last.rev) obs.add(`${who}: the state went back in time (rev ${last.rev} → ${o.rev}) — a stale snapshot was adopted (R12)`);
+      obs.lastRev[role] = { epoch: o.epoch, rev: o.rev };
+    }
+  }
+}, 100);
+
 function sendKey(role, key) {
   const w = sides[role] && sides[role].frame.contentWindow; if (!w || !w.document || !w.document.body) return;
   w.document.body.dispatchEvent(new w.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
@@ -258,10 +299,10 @@ function randomInput(role) {
   else { const c = clickables(w); if (c.length) c[Math.floor(Math.random() * c.length)].click(); }
 }
 let fuzzTimer = null;
-function setFuzz(on, ms) {
+function setFuzz(on, ms, guestShare = 0.5) {                        // guestShare: how much of the input comes from the phone
   clearInterval(fuzzTimer); fuzzTimer = null;
   $("#fuzz").classList.toggle("on", !!on);
-  if (on) fuzzTimer = setInterval(() => { randomInput(Math.random() < 0.5 ? "host" : "guest"); if (Math.random() < 0.2) randomInput("host"); }, ms || +$("#fuzz-ms").value || 250);
+  if (on) fuzzTimer = setInterval(() => { randomInput(Math.random() < guestShare ? "guest" : "host"); if (Math.random() < 0.2) randomInput("host"); }, ms || +$("#fuzz-ms").value || 250);
 }
 
 // ── Live status ──────────────────────────────────────────────────────────────
@@ -354,10 +395,14 @@ class Ctx {
   inSync() { const a = debugState("host"), b = debugState("guest"); return !!a && !!b && a === b; }
   async converge(ms, what) {
     if (!hasDebug()) return null;
-    return this.waitFor(() => this.inSync(), ms, (what || "host and guest to hold the same state") + `\n   host:  ${debugState("host")}\n   guest: ${debugState("guest")}`);
+    try { return await this.waitFor(() => this.inSync(), ms, (what || "host and guest to hold the same state") + `\n   host:  ${debugState("host")}\n   guest: ${debugState("guest")}`); }
+    catch (e) { if (obs.violations.length) e.message = obs.violations.slice(0, 3).join("\n") + "\n(and then: " + e.message.split("\n")[0] + ")"; throw e; }   // a violation is usually the root cause
   }
-  async play(ms) { setFuzz(true, this.quick ? 120 : 200); await sleep(ms); }
+  async play(ms, guestShare = 0.5) { setFuzz(true, this.quick ? 120 : 200, guestShare); await sleep(ms); }
   async stopPlay() { setFuzz(false); }
+  assertClean() {                                                    // the observers found nothing wrong
+    if (obs.violations.length) throw new Error(obs.violations.slice(0, 3).join("\n"));
+  }
   noErrors() { for (const r of ["host", "guest"]) { const e = sides[r].errors; if (e.length) throw new Error(`${r === "host" ? "TV" : "phone"} page reported an error: ${e[0]}`); } }
   async requireDebug() {
     await this.waitFor(() => sides.host && sides.guest && sides.host.loaded && sides.guest.loaded, 40000, "both game pages to load (is the game id right?)");
@@ -391,22 +436,30 @@ const CHECKS = [
       await c.converge(20000, "the guest to recover once state messages get through again"); return `recovered ${c.sinceStart()} s after launch`; } },
   { id: "play", name: "Fast random play, 0–800 ms latency", run: async (c) => {
       await c.start({ net: { latMax: 800 } }); await c.requireDebug(); await c.converge(15000);
-      await c.play(c.d(15000)); await c.stopPlay(); await c.converge(15000, "both sides to agree after play stopped"); c.noErrors(); return "in sync after fast play"; } },
-  { id: "hostile", name: "Bad network: up to 3 s latency, 20 % duplicated, 5 % lost", run: async (c) => {
+      await c.play(c.d(15000)); await c.stopPlay(); await c.converge(15000, "both sides to agree after play stopped"); c.noErrors(); c.assertClean(); return "in sync after fast play"; } },
+  { id: "hostile", name: "Bad network: up to 3 s latency, 20 % late duplicates, 5 % lost", run: async (c) => {
       await c.start({ net: { latMax: 3000, dup: 20, drop: 5 } }); await c.requireDebug(); await c.converge(30000);
       await c.play(c.d(20000)); await c.stopPlay(); Object.assign(cfg, { latMax: 200, drop: 0, dup: 0 });
-      await c.converge(30000, "both sides to agree once the network calmed down"); c.noErrors(); return "in sync"; } },
+      await c.converge(30000, "both sides to agree once the network calmed down"); c.noErrors(); c.assertClean(); return "in sync"; } },
+  { id: "stale-moves", name: "A stale or duplicate 'move' from the phone is never applied", run: async (c) => {
+      await c.start({ net: { latMax: 500, dup: 30 } }); await c.requireDebug(); await c.converge(20000);
+      obs.sentCount = 0; obs.applied = 0;
+      await c.play(c.d(25000), 0.8); await c.stopPlay();                  // mostly the phone, on a network that delivers late duplicates
+      Object.assign(cfg, { latMax: 100, dup: 0, drop: 0 }); await c.converge(30000, "both sides to agree once the network calmed down");
+      c.assertClean();
+      if (obs.sentCount < 3) { const e = new Error("the phone never sent a 'move' intent (R18: use the type \"move\") — nothing to check"); e.warn = true; throw e; }
+      return `${obs.sentCount} intents sent, ${obs.applied} applied, none stale or duplicated`; } },
   { id: "phone-offline", name: "Phone goes offline for 8 s during play", run: async (c) => {
       await c.start(); await c.requireDebug(); await c.converge(15000); await c.play(c.d(5000));
       sides.guest.client.setOnline(false); await c.wait(8000); sides.guest.client.setOnline(true);
-      await c.play(c.d(4000)); await c.stopPlay(); await c.converge(20000, "the phone to catch up after reconnecting"); c.noErrors(); return "caught up"; } },
+      await c.play(c.d(4000)); await c.stopPlay(); await c.converge(20000, "the phone to catch up after reconnecting"); c.noErrors(); c.assertClean(); return "caught up"; } },
   { id: "tv-offline", name: "TV goes offline for 8 s during play", run: async (c) => {
       await c.start(); await c.requireDebug(); await c.converge(15000); await c.play(c.d(5000));
       sides.host.client.setOnline(false); await c.wait(8000); sides.host.client.setOnline(true);
-      await c.play(c.d(4000)); await c.stopPlay(); await c.converge(20000, "both sides to agree after the TV reconnected"); c.noErrors(); return "caught up"; } },
+      await c.play(c.d(4000)); await c.stopPlay(); await c.converge(20000, "both sides to agree after the TV reconnected"); c.noErrors(); c.assertClean(); return "caught up"; } },
   { id: "tv-restart", name: "TV page restarts mid-game", run: async (c) => {
       await c.start(); await c.requireDebug(); await c.converge(15000); await c.play(c.d(5000)); await c.stopPlay();
-      restartPage("host"); const ms = await c.converge(20000, "the phone to follow the restarted TV page"); return `followed in ${Math.round(ms / 1000)} s`; } },
+      restartPage("host"); const ms = await c.converge(20000, "the phone to follow the restarted TV page"); c.assertClean(); return `followed in ${Math.round(ms / 1000)} s`; } },
   { id: "leave", name: "Esc on one side ends the session on the other", run: async (c) => {
       await c.start(); await c.waitFor(() => c.bothLinked(), 20000, "link"); sendKey("guest", "Escape");
       await c.waitFor(() => sides.host.ended === "peer_left/local_back", 6000, "the TV to be told the phone quit (peer_left)");

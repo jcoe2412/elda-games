@@ -591,6 +591,11 @@ render();
 
 // lets the test bench (online/dev) compare the host's and the guest's state
 window.eldaDebugState = () => S;
+// optional: the bench calls this on every state it sees; return null, or a message if the state is impossible
+window.eldaDebugInvariant = (s) => {
+  const a = s.board.filter(v => v === 1).length, b = s.board.filter(v => v === 2).length;
+  return Math.abs(a - b) > 1 ? `mark imbalance ${a}/${b}` : null;
+};
 </script>
 </body>
 </html>

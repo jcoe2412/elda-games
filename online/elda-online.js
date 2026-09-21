@@ -37,6 +37,13 @@
     const role = params.get("role") === "guest" ? "guest" : "host";
     const sid = params.get("sid") || "dev";
 
+    // Test hook. The test bench (online/dev), being SAME-origin with the game, can observe traffic through
+    // parent.__eldaOnlineTest(event, role, data). In the real apps the parent is cross-origin, reading it
+    // throws, and this stays null: it has no effect in production.
+    let hook = null;
+    try { if (root.parent && root.parent !== root) hook = root.parent.__eldaOnlineTest || null; } catch (_) { hook = null; }
+    const trace = (event, data) => { if (hook) { try { hook(event, role, data); } catch (_) {} } };
+
     let link = "down";
     let haveSnapshot = false;
     let closed = false;
@@ -82,7 +89,9 @@
           haveSnapshot = true;
           if (h.onSnapshot) h.onSnapshot(data.payload);
         } else if (d.channel === "move") {
-          if (h.onMessage) h.onMessage(data.type, data.payload);
+          trace("message-before", { type: data.type, payload: data.payload });
+          try { if (h.onMessage) h.onMessage(data.type, data.payload); }
+          finally { trace("message-after", { type: data.type, payload: data.payload }); }
         } else if (d.channel === "control" && data.type === "join" && role === "host") {
           if (h.getSnapshot) publishSnapshot(h.getSnapshot());
           if (h.onPeerJoined) h.onPeerJoined();
@@ -111,6 +120,7 @@
     }
 
     function send(type, payload) {
+      trace("send", { type: String(type), payload });
       post({ kind: "publish", channel: "move", data: { type: String(type), payload } });
     }
 
