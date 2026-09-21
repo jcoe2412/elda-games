@@ -7,12 +7,16 @@ on:
     paths:
       - "online/**"
       - "online-games.json"
+      - "games.json"
+      - "*/thumbnail.*"
       - ".github/workflows/validate-online-games.yml"
   push:
     branches: [ main ]
     paths:
       - "online/**"
       - "online-games.json"
+      - "games.json"
+      - "*/thumbnail.*"
 
 jobs:
   validate:

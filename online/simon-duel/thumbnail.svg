@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300" role="img" aria-label="Simon duel">
+<defs><radialGradient id="bg" cx="50%" cy="45%" r="75%"><stop offset="0" stop-color="#1b1b3a"/><stop offset="1" stop-color="#0e0e1c"/></radialGradient><filter id="glow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="9" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs><rect width="400" height="300" fill="url(#bg)"/>
+<g transform="translate(18,18) scale(0.62)">
+  <circle cx="200" cy="200" r="198" fill="#0a0a0a"/><circle cx="200" cy="200" r="193" fill="#131313"/>
+  <path d="M 200 200 L 82.2 69.2 A 176 176 0 0 1 317.8 69.2 Z" fill="#ff4422" filter="url(#glow)"/>
+  <path d="M 200 200 L 330.8 82.2 A 176 176 0 0 1 330.8 317.8 Z" fill="#009922"/>
+  <path d="M 200 200 L 317.8 330.8 A 176 176 0 0 1 82.2 330.8 Z" fill="#1155cc"/>
+  <path d="M 200 200 L 69.2 317.8 A 176 176 0 0 1 69.2 82.2 Z" fill="#cc9900"/>
+  <circle cx="200" cy="200" r="64" fill="#1e1e1e"/><circle cx="200" cy="200" r="58" fill="#111111"/>
+  <text x="200" y="207" text-anchor="middle" dominant-baseline="middle" fill="#fff" font-size="27" font-weight="900"
+        font-family="'Arial Black', Impact, Arial, sans-serif">simon</text>
+</g><circle cx="292" cy="78" r="15" fill="#cc1100"/><circle cx="332" cy="78" r="15" fill="#009922"/><circle cx="292" cy="122" r="15" fill="#1155cc"/><circle cx="332" cy="122" r="15" fill="#cc9900"/><circle cx="292" cy="166" r="15" fill="#cc1100"/><circle cx="332" cy="166" r="15" fill="#1155cc"/><circle cx="70" cy="262" r="15" fill="#4488ff"/><circle cx="330" cy="262" r="15" fill="#ff6633"/><text x="200" y="272" text-anchor="middle" fill="#8a8aa0" font-size="24" font-weight="700" font-family="Arial, sans-serif">VS</text>
+</svg>

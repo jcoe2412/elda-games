@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* Static validator for online games and the manifest. Zero dependencies.
  *
- *   node online/dev/validate.js                  every game listed in online-games.json (+ the starter template)
+ *   node online/dev/validate.js                  games.json, online-games.json and every online game (+ the starter template)
  *   node online/dev/validate.js my-game          just online/my-game/  (also works for a game not yet in the manifest)
  *   node online/dev/validate.js --bridge=<file>  (maintainers) also check that online/dev/online-bridge.js is identical
  *                                                to the bridge shipped in EldaRemote (js/online-bridge.js) or EldaTV
@@ -25,6 +25,47 @@ const warn = (where, msg) => { warnings++; console.log(`  ! warning ${where}: ${
 const ok = (msg) => console.log(`  ✓ ${msg}`);
 const read = (p) => fs.readFileSync(p, "utf8").replace(/\r\n/g, "\n");
 
+// ── what the TV / app shows for a game: names, description, thumbnail ───────────
+const THUMB_EXT = /\.(svg|png|jpe?g|webp)$/i, THUMB_MAX = 300 * 1024;
+function validateListing(w, g, { label }) {
+  for (const key of [label, "description"]) {
+    if (!g[key] || typeof g[key] !== "object") { err(w, `"${key}" must be an object with ${LANGS.join(", ")}`); continue; }
+    for (const l of LANGS) if (typeof g[key][l] !== "string" || !g[key][l].trim()) err(w, `"${key}.${l}" is missing`);
+    else if (key === "description" && g[key][l].length > 160) warn(w, `"description.${l}" is ${g[key][l].length} characters — the TV shows about 140 on three lines`);
+  }
+  const t = g.thumbnail;
+  if (typeof t !== "string" || !t) { err(w, '"thumbnail" is missing (a path relative to the repository root, e.g. "my-game/thumbnail.svg")'); return; }
+  if (/^[a-z]+:|^\/|\.\.|[\\]/i.test(t)) { err(w, `"thumbnail" must be a plain relative path inside the repository (got "${t}")`); return; }
+  if (!THUMB_EXT.test(t)) { err(w, '"thumbnail" must be .svg, .png, .jpg or .webp'); return; }
+  const f = path.join(ROOT, t);
+  if (!fs.existsSync(f)) { err(w, `thumbnail ${t} does not exist`); return; }
+  const size = fs.statSync(f).size;
+  if (size > THUMB_MAX) err(w, `thumbnail ${t} is ${Math.round(size / 1024)} KB — keep it under ${THUMB_MAX / 1024} KB (it is loaded by the TV)`);
+  if (/\.svg$/i.test(t)) {
+    const svg = read(f);
+    if (!/<svg[\s>]/.test(svg)) err(w, `${t} is not an SVG document`);
+    if (/<script/i.test(svg)) err(w, `${t} must not contain scripts`);
+  }
+}
+
+// ── games.json (the single-player games listed on the TV) ────────────────────
+function validateGamesJson() {
+  console.log("games.json");
+  let list;
+  try { list = JSON.parse(read(path.join(ROOT, "games.json"))); } catch (e) { err("games.json", "not valid JSON: " + e.message); return; }
+  if (!Array.isArray(list)) { err("games.json", "must be an array (the companion app reads it as one)"); return; }
+  const before = errors, seen = new Set();
+  for (const g of list) {
+    const w = `game "${g && g.id}"`;
+    if (!g || typeof g.id !== "string" || !ID_RE.test(g.id)) { err(w, "id must match ^[a-z0-9_-]{1,40}$"); continue; }
+    if (seen.has(g.id)) err(w, "duplicate id"); seen.add(g.id);
+    if (!fs.existsSync(path.join(ROOT, g.id, "index.html"))) err(w, `${g.id}/index.html does not exist`);
+    if (typeof g.label !== "string" || !g.label.trim()) err(w, '"label" (a plain string, used by the companion app) is missing');
+    validateListing(w, g, { label: "labels" });
+  }
+  if (errors === before) ok(`${list.length} game(s) listed, each with names, description and thumbnail in ${LANGS.join("/")}`);
+}
+
 // ── manifest ─────────────────────────────────────────────────────────────────
 function validateManifest() {
   console.log("online-games.json");
@@ -43,10 +84,7 @@ function validateManifest() {
     if (g.players !== 2) err(w, '"players" must be 2 (only 2-player games are supported)');
     if (typeof g.sdk !== "number") err(w, '"sdk" (number) is missing');
     else if (g.sdk > SUPPORTED_SDK) warn(w, `sdk ${g.sdk} is newer than what this validator knows (${SUPPORTED_SDK})`);
-    for (const key of ["label", "description"]) {
-      if (!g[key] || typeof g[key] !== "object") { err(w, `"${key}" must be an object with ${LANGS.join(", ")}`); continue; }
-      for (const l of LANGS) if (typeof g[key][l] !== "string" || !g[key][l].trim()) err(w, `"${key}.${l}" is missing`);
-    }
+    validateListing(w, g, { label: "label" });
     if (!fs.existsSync(path.join(ROOT, "online", g.id, "index.html"))) err(w, `online/${g.id}/index.html does not exist`);
   }
   if (!errors) ok(`${m.games.length} game(s) listed, all entries well-formed`);
@@ -117,6 +155,7 @@ function checkBridge(paths) {
   let toCheck;
   if (ids.length) { toCheck = ids; if (ids.length === 1) { /* a game in progress: the manifest may not list it yet */ } }
   else {
+    validateGamesJson();
     const listed = validateManifest();
     // every game folder, listed or not, so a pull request cannot add one without it being checked
     const folders = fs.readdirSync(path.join(ROOT, "online"), { withFileTypes: true })

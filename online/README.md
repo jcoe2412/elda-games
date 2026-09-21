@@ -122,6 +122,7 @@ s.leave();                 // ask the parent to end the session (Escape / quit)
       "id": "connect4",
       "label":       { "en": "Connect 4", "fr": "Puissance 4", "nl": "Vier op een rij" },
       "description": { "en": "…", "fr": "…", "nl": "…" },
+      "thumbnail": "connect4/thumbnail.svg",
       "path": "online/connect4/index.html",
       "players": 2,
       "sdk": 1
@@ -130,7 +131,9 @@ s.leave();                 // ask the parent to end the session (Escape / quit)
 }
 ```
 
-`id` must match `^[a-z0-9_-]+$` and the folder name. `path` is always
+`id` must match `^[a-z0-9_-]+$` and the folder name. `thumbnail` is a 4:3 picture of the game (a path relative to
+the repository root; SVG recommended, under 300 KB — see the [README](../README.md#thumbnail-and-description)); a game that
+also exists as a single-player game reuses that game's thumbnail. `path` is always
 `online/<id>/index.html` — EldaTV builds the URL itself from that rule and
 never opens anything it received over MQTT. `sdk` is the SDK/bridge protocol
 version the game needs; an app that only understands an older one hides the
@@ -181,6 +184,6 @@ and `event.origin === <portal origin>`, and posts with an explicit
 1. Copy `connect4/` to `online/<id>/`, keep the SDK `<script>` line, replace the rules/UI.
 2. Put **all** game state in what `getSnapshot()` returns.
 3. Support `?lang=` (en/fr/nl); no speech; work on a 360 px-wide phone *and* a 1080p TV.
-4. Add the entry to `online-games.json`.
+4. Add a 4:3 `thumbnail.svg` and the entry (names, description, thumbnail) to `online-games.json`.
 5. Test locally in two tabs (see above), then push to `main` — GitHub Pages
    publishes it and the companion app lists it on its next visit to the Games tab.

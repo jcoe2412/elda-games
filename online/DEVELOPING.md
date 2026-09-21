@@ -217,12 +217,15 @@ Add one object to [`../online-games.json`](../online-games.json):
   "id": "my-game",
   "label":       { "en": "My Game",         "fr": "Mon jeu",            "nl": "Mijn spel" },
   "description": { "en": "Play … against the person at the TV",  "fr": "…", "nl": "…" },
+  "thumbnail": "online/my-game/thumbnail.svg",
   "path": "online/my-game/index.html",
   "players": 2,
   "sdk": 1
 }
 ```
 
+`thumbnail` is a 4:3 picture of your game — see [Thumbnail and description](../README.md#thumbnail-and-description) (the validator
+insists on it, and on names and a description in en/fr/nl);
 `path` is always `online/<id>/index.html` (the apps build the URL themselves from the id and never open anything else);
 `players` is `2`; `sdk` is the SDK version your game needs (`1` today — an app that only knows an older SDK hides the
 game instead of breaking).

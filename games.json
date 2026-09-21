@@ -1,6 +1,62 @@
 [
-  { "id": "tictactoe", "label": "Tic-Tac-Toe" },
-  { "id": "simon",     "label": "Simon" },
-  { "id": "connect4",  "label": "Connect 4" },
-  { "id": "memory",    "label": "Memory" }
+  {
+    "id": "tictactoe",
+    "label": "Tic-Tac-Toe",
+    "labels": {
+      "en": "Tic-Tac-Toe",
+      "fr": "Tic-Tac-Toe",
+      "nl": "Tic-Tac-Toe"
+    },
+    "description": {
+      "en": "Be the first to line up three of your marks in a row — across, down or diagonally — before the computer does.",
+      "fr": "Soyez le premier à aligner trois de vos symboles — en ligne, en colonne ou en diagonale — avant l'ordinateur.",
+      "nl": "Maak als eerste een rij van drie van uw tekens — horizontaal, verticaal of diagonaal — voordat de computer dat doet."
+    },
+    "thumbnail": "tictactoe/thumbnail.svg"
+  },
+  {
+    "id": "simon",
+    "label": "Simon",
+    "labels": {
+      "en": "Simon",
+      "fr": "Simon",
+      "nl": "Simon"
+    },
+    "description": {
+      "en": "Watch the colours light up, then repeat the sequence from memory. Every round it gets one step longer.",
+      "fr": "Regardez les couleurs s'allumer, puis répétez la séquence de mémoire. À chaque tour, elle s'allonge d'une étape.",
+      "nl": "Kijk hoe de kleuren oplichten en herhaal de reeks uit uw hoofd. Elke ronde wordt ze één stap langer."
+    },
+    "thumbnail": "simon/thumbnail.svg"
+  },
+  {
+    "id": "connect4",
+    "label": "Connect 4",
+    "labels": {
+      "en": "Connect 4",
+      "fr": "Puissance 4",
+      "nl": "Vier op een rij"
+    },
+    "description": {
+      "en": "Drop your discs into the columns and connect four in a row — across, down or diagonally — before the computer does.",
+      "fr": "Faites tomber vos jetons dans les colonnes et alignez-en quatre — en ligne, en colonne ou en diagonale — avant l'ordinateur.",
+      "nl": "Laat uw schijven in de kolommen vallen en maak een rij van vier — horizontaal, verticaal of diagonaal — voordat de computer dat doet."
+    },
+    "thumbnail": "connect4/thumbnail.svg"
+  },
+  {
+    "id": "memory",
+    "label": "Memory",
+    "labels": {
+      "en": "Memory",
+      "fr": "Memory",
+      "nl": "Memory"
+    },
+    "description": {
+      "en": "Turn over two cards at a time and find all the matching pairs. A good workout for your memory.",
+      "fr": "Retournez deux cartes à la fois et retrouvez toutes les paires identiques. Un bon exercice pour la mémoire.",
+      "nl": "Draai telkens twee kaarten om en vind alle gelijke paren. Een goede training voor uw geheugen."
+    },
+    "thumbnail": "memory/thumbnail.svg"
+  }
 ]
