@@ -172,6 +172,13 @@ Two very different screens must work from the same file:
 * **R30** — Dark background (`#0e0e1c`), light text. Keep board lines and cell borders clearly visible (a border that
   looks fine on a monitor can be invisible on a TV).
 
+**A game that exists in both a single-player and a two-player form must look and feel the same in both.** The
+single-player game (`<id>/index.html` at the repository root) is the reference: reuse its layout, cards/pieces, colours,
+typography, sounds, status wording and colours, and translations, and add only what two players need — whose turn it is,
+the opponent's live cursor, both scores, a phone layout. Look at what the existing pairs do
+([`memory/`](../memory/index.html) ↔ [`online/memory/`](memory/index.html), [`simon/`](../simon/index.html) ↔
+[`online/simon-duel/`](simon-duel/index.html)). Do not change the single-player game to suit the online one.
+
 ### 3.9 Languages
 
 * **R31** — English, French and Dutch are required. Read `?lang=` (`en` default; accept `fr-BE`-style values by taking the

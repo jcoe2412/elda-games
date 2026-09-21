@@ -4,142 +4,204 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
 <title>Memory — online</title>
+<!-- Look & feel: identical to the single-player Memory (../../memory/index.html): same cards (3D flip, dot-grid back, emoji),
+     same 4×3 layout, colours and wording. Only what two players need is added (whose pair it is, both scores, the
+     opponent's live cursor, a phone layout). -->
 <style>
   :root {
-    --bg: #0e0e1c; --card: #14142a; --border: #4a4a90; --text: #e0e0e0; --dim: #8a8aa0;
-    --p1: #4488ff; --p2: #ff6633;                        /* host / guest */
+    --bg:      #0e0e1c;
+    --cover:   #16163a;
+    --face:    #1e1e40;
+    --accent:  #6c63ff;
+    --matched: #00c897;
+    --green:   #22bb33;
+    --red:     #dd2200;
+    --yellow:  #ddaa00;
+    --dim:     #555;
+    --text:    #e0e0e0;
+    --p1: #4488ff; --p2: #ff6633;                        /* host / guest: who took a pair */
     --me: var(--p1); --opp: var(--p2);
-    --green: #22bb33; --red: #dd2200; --yellow: #ddaa00;
-    --cell: min(16vh, 17vw);                             /* TV (landscape) */
-    --gap: 12px;
-  }
-  @media (max-aspect-ratio: 1/1) {                       /* phone in portrait */
-    :root { --cell: min(calc((100vw - 48px) / 4), 15vh); --gap: 8px; }
-    h1 { font-size: 1.6rem !important; }
-    #status { font-size: 1.3rem !important; min-height: 1.8rem !important; }
-    #meta { font-size: .85rem !important; }
+    --cell:    min(16vh, 13vw);
+    --gap:     10px;
   }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
-    width: 100%; height: 100%; background: var(--bg); color: var(--text);
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
     font-family: 'Segoe UI', Arial, sans-serif;
     display: flex; align-items: center; justify-content: center;
     overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: manipulation;
   }
-  #game { display: flex; flex-direction: column; align-items: center; gap: .8rem; padding: .5rem; }
-  h1 { font-size: 2.8rem; font-weight: 900; letter-spacing: .06em; }
-  #status { font-size: 2.1rem; font-weight: 700; min-height: 2.6rem; text-align: center; transition: color .25s; }
-  #status.your-turn { color: var(--me); } #status.waiting { color: var(--yellow); }
-  #status.win { color: var(--green); } #status.lose { color: var(--red); } #status.draw { color: var(--dim); }
-  #status.good { color: var(--green); }
-
-  #board { display: grid; grid-template-columns: repeat(4, var(--cell)); grid-template-rows: repeat(4, var(--cell)); gap: var(--gap); }
-  .card {
-    width: var(--cell); height: var(--cell); border-radius: 16px; cursor: pointer;
-    display: flex; align-items: center; justify-content: center; position: relative;
-    background: #22225a; border: 6px solid var(--border);
-    font-size: calc(var(--cell) * .5); font-weight: 900; color: #6a6ab8;
+  #game {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 0.7rem;
+    padding: 0.5rem;
   }
-  .card.down::after { content: "?"; }                                   /* the back of a card */
-  .card.up { background: #f1f1ff; border-color: #ffffff; cursor: default; }
-  .card.matched { background: #1b1b3a; opacity: .9; cursor: default; }
-  .card.matched.by1 { border-color: var(--p1); } .card.matched.by2 { border-color: var(--p2); }
-  .card svg { width: 70%; height: 70%; }
-  .card.cur      { box-shadow: 0 0 0 5px var(--me); }                   /* my cursor */
-  .card.opp-cur  { box-shadow: 0 0 0 5px var(--opp); }                  /* the opponent's live cursor */
-  .card.cur.opp-cur { box-shadow: 0 0 0 5px var(--me), 0 0 0 10px var(--opp); }
+  h1 {
+    font-size: 3rem; font-weight: 900; letter-spacing: .06em;
+  }
+  #status {
+    font-size: 2.2rem; font-weight: 700; min-height: 2.7rem;
+    text-align: center; letter-spacing: .02em;
+    transition: color .25s;
+  }
+  #status.your-turn { color: #4488ff; }
+  #status.waiting   { color: var(--yellow); }
+  #status.matched   { color: var(--matched); }
+  #status.no-match  { color: var(--red); }
+  #status.win       { color: var(--green); }
+  #status.lose      { color: var(--red); }
+  #status.idle      { color: var(--dim); }
 
-  #meta { display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap; justify-content: center; color: var(--dim); font-size: .95rem; }
-  #me-badge { display: inline-flex; align-items: center; gap: .5rem; padding: .2rem .7rem; border: 1px solid #333; border-radius: 99px; }
-  #me-dot { width: .9em; height: .9em; border-radius: 50%; background: var(--me); }
-  #pairs { color: var(--text); font-weight: 700; }
-  #again { font: inherit; font-size: 1.3rem; font-weight: 700; min-height: 48px; padding: .5rem 1.8rem; border: 0; border-radius: 99px;
-           background: var(--me); color: #fff; cursor: pointer; }
-  #again:disabled { background: #333; color: var(--dim); cursor: default; }
-  .hidden { display: none !important; }
+  #board {
+    display: grid;
+    gap: var(--gap);
+    grid-template-columns: repeat(4, var(--cell));
+    grid-template-rows: repeat(3, var(--cell));
+  }
+
+  /* Card flip */
+  .card {
+    width: var(--cell); height: var(--cell);
+    perspective: 800px;
+    cursor: pointer;
+  }
+  .card-inner {
+    width: 100%; height: 100%;
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform .38s ease;
+    border-radius: 14px;
+  }
+  .card.flipped .card-inner,
+  .card.matched .card-inner { transform: rotateY(180deg); }
+
+  .card-cover, .card-face {
+    position: absolute; inset: 0;
+    border-radius: 14px;
+    backface-visibility: hidden; -webkit-backface-visibility: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  /* Face-down side — dot-grid pattern */
+  .card-cover {
+    background: var(--cover);
+    border: 2px solid #2a2a5a;
+    background-image: radial-gradient(circle, #2e2e6a 1.5px, transparent 1.5px);
+    background-size: calc(var(--cell) / 5) calc(var(--cell) / 5);
+  }
+  /* Focus ring on cover only */
+  .card.focused .card-cover {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px #6c63ff55;
+  }
+  /* The opponent's live cursor: a dashed ring in their colour */
+  .card.opp-focused .card-cover {
+    outline: 3px dashed var(--opp); outline-offset: 2px;
+  }
+
+  /* Face-up side — emoji symbol */
+  .card-face {
+    background: var(--face);
+    border: 2px solid #333366;
+    transform: rotateY(180deg);
+    font-size: calc(var(--cell) * 0.52);
+    line-height: 1;
+  }
+
+  /* Matched glow — in the colour of the player who took the pair */
+  .card.matched .card-face {
+    border-color: var(--matched);
+    box-shadow: 0 0 18px 5px #00c89755;
+  }
+  .card.matched.by1 .card-face { border-color: var(--p1); box-shadow: 0 0 18px 5px #4488ff55; }
+  .card.matched.by2 .card-face { border-color: var(--p2); box-shadow: 0 0 18px 5px #ff663355; }
+
+  #meta {
+    display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: .4rem 1.4rem;
+    color: var(--dim); font-size: 0.9rem;
+  }
+  #pairs-count { font-size: 1.5rem; color: var(--text); font-weight: 700; }
+  #versus b { font-size: 1.2rem; }
+  #me-badge { display: inline-flex; align-items: center; gap: .4rem; padding: .1rem .6rem; border: 1px solid #333; border-radius: 99px; }
+  #me-dot { width: .8em; height: .8em; border-radius: 50%; background: var(--me); }
+
+  @media (max-aspect-ratio: 1/1) {                       /* phone in portrait: the same, sized for the width */
+    :root { --cell: min(calc((100vw - 48px) / 4), 15vh); --gap: 8px; }
+    h1 { font-size: 1.8rem; }
+    #status { font-size: 1.3rem; min-height: 1.8rem; }
+    #pairs-count { font-size: 1.2rem; }
+    #meta { font-size: .8rem; gap: .3rem 1rem; }
+  }
 </style>
 </head>
 <body>
 <div id="game">
   <h1 id="title-el"></h1>
-  <div id="status" class="waiting"></div>
+  <div id="status" class="idle"></div>
   <div id="board"></div>
   <div id="meta">
-    <span id="me-badge"><span id="me-dot"></span><span id="me-text"></span></span>
-    <span id="pairs"></span>
+    <span id="pairs-count"></span>
+    <span id="versus"></span>
     <span id="score"></span>
+    <span id="me-badge"><span id="me-dot"></span><span id="me-text"></span></span>
     <span id="hint"></span>
   </div>
-  <button id="again" class="hidden"></button>
 </div>
 
 <script src="../elda-online.js"></script>
 <script>
-// ── i18n (en / fr / nl). No text-to-speech: online games run during a video call. ──
+// ── i18n (en / fr / nl) — the single-player wording where it exists. No text-to-speech: online games run during a video call. ──
 const PARAMS = new URLSearchParams(location.search);
 const LANG = (() => {
   const l = (PARAMS.get("lang") || "en").split(/[-_]/)[0].toLowerCase();
   return ["fr", "nl"].includes(l) ? l : "en";
 })();
 const T = {
-  en: { title: "Memory", yourTurn: "Your turn — pick a card", second: "Now pick a second card", oppTurn: "Opponent's turn",
-        pair: "It's a pair! 🎉", nopair: "No pair", youWin: "You win! 🎉", youLose: "You lose", draw: "Draw!",
-        again: "Play again", waitAgain: "Waiting for your opponent…", oppAgain: "Your opponent wants a rematch",
-        waitOpp: "Waiting for your opponent…", connecting: "Connecting…", lost: "Connection lost — waiting…",
-        oppLeft: "Your opponent left the game", playBlue: "You are blue", playOrange: "You are orange",
-        pairs: "Pairs: you {me} – {opp} opponent", score: "Games {me} – {opp}",
-        hint: "← ↑ → ↓  move   Enter / A  flip   Esc  quit", hintOver: "Enter / A  play again   Esc  quit",
-        hintTouch: "Tap a card to select it, tap it again to flip it" },
-  fr: { title: "Memory", yourTurn: "Votre tour — choisissez une carte", second: "Choisissez une deuxième carte", oppTurn: "Tour de l'adversaire",
-        pair: "Une paire ! 🎉", nopair: "Pas de paire", youWin: "Vous gagnez ! 🎉", youLose: "Vous perdez", draw: "Égalité !",
-        again: "Rejouer", waitAgain: "En attente de votre adversaire…", oppAgain: "Votre adversaire veut rejouer",
-        waitOpp: "En attente de votre adversaire…", connecting: "Connexion…", lost: "Connexion perdue — en attente…",
-        oppLeft: "Votre adversaire a quitté la partie", playBlue: "Vous êtes bleu", playOrange: "Vous êtes orange",
-        pairs: "Paires : vous {me} – {opp} adversaire", score: "Parties {me} – {opp}",
-        hint: "← ↑ → ↓  déplacer   Entrée / A  retourner   Échap  quitter", hintOver: "Entrée / A  rejouer   Échap  quitter",
-        hintTouch: "Touchez une carte pour la choisir, touchez-la à nouveau pour la retourner" },
-  nl: { title: "Memory", yourTurn: "Uw beurt — kies een kaart", second: "Kies nu een tweede kaart", oppTurn: "Beurt van de tegenstander",
-        pair: "Een paar! 🎉", nopair: "Geen paar", youWin: "U wint! 🎉", youLose: "U verliest", draw: "Gelijkspel!",
-        again: "Nog een keer", waitAgain: "Wachten op uw tegenstander…", oppAgain: "Uw tegenstander wil opnieuw spelen",
-        waitOpp: "Wachten op uw tegenstander…", connecting: "Verbinden…", lost: "Verbinding verbroken — wachten…",
-        oppLeft: "Uw tegenstander heeft het spel verlaten", playBlue: "U bent blauw", playOrange: "U bent oranje",
-        pairs: "Paren: u {me} – {opp} tegenstander", score: "Spellen {me} – {opp}",
-        hint: "← ↑ → ↓  bewegen   Enter / A  omdraaien   Esc  stoppen", hintOver: "Enter / A  opnieuw   Esc  stoppen",
-        hintTouch: "Tik op een kaart om te kiezen, tik nogmaals om om te draaien" },
+  en: { title: "Memory", yourTurn: "Find a pair", matched: "Match! ✓", noMatch: "No match", youWin: "You win! 🎉", youLose: "You lose", draw: "Draw!",
+        pressAgain: "Press any key to play again", waitAgain: "Waiting for your opponent…", oppAgain: "Your opponent wants a rematch — press any key",
+        oppTurn: "Opponent's turn", waitOpp: "Waiting for your opponent…", connecting: "Connecting…", lost: "Connection lost — waiting…",
+        oppLeft: "Your opponent left the game", playBlue: "You are blue", playOrange: "You are orange", you: "You", opp: "Opponent",
+        pairs: (f, t) => `${f} / ${t} pairs`, games: "Games {me} – {opp}",
+        hint: "↑ ↓ ← →  move   Enter / A  flip", hintTouch: "Tap a card to select it, tap it again to flip it" },
+  fr: { title: "Memory", yourTurn: "Trouvez une paire", matched: "Paire ! ✓", noMatch: "Pas de paire", youWin: "Vous gagnez ! 🎉", youLose: "Vous perdez", draw: "Égalité !",
+        pressAgain: "Appuyez sur une touche pour rejouer", waitAgain: "En attente de votre adversaire…", oppAgain: "Votre adversaire veut rejouer — appuyez sur une touche",
+        oppTurn: "Tour de l'adversaire", waitOpp: "En attente de votre adversaire…", connecting: "Connexion…", lost: "Connexion perdue — en attente…",
+        oppLeft: "Votre adversaire a quitté la partie", playBlue: "Vous êtes bleu", playOrange: "Vous êtes orange", you: "Vous", opp: "Adversaire",
+        pairs: (f, t) => `${f} / ${t} paires`, games: "Parties {me} – {opp}",
+        hint: "↑ ↓ ← →  déplacer   Entrée / A  retourner", hintTouch: "Touchez une carte pour la choisir, touchez-la à nouveau pour la retourner" },
+  nl: { title: "Memory", yourTurn: "Zoek een paar", matched: "Paar! ✓", noMatch: "Geen paar", youWin: "U wint! 🎉", youLose: "U verliest", draw: "Gelijkspel!",
+        pressAgain: "Druk een toets in om opnieuw te spelen", waitAgain: "Wachten op uw tegenstander…", oppAgain: "Uw tegenstander wil opnieuw spelen — druk een toets in",
+        oppTurn: "Beurt van de tegenstander", waitOpp: "Wachten op uw tegenstander…", connecting: "Verbinden…", lost: "Verbinding verbroken — wachten…",
+        oppLeft: "Uw tegenstander heeft het spel verlaten", playBlue: "U bent blauw", playOrange: "U bent oranje", you: "U", opp: "Tegenstander",
+        pairs: (f, t) => `${f} / ${t} paar`, games: "Spellen {me} – {opp}",
+        hint: "↑ ↓ ← →  bewegen   Enter / A  omdraaien", hintTouch: "Tik op een kaart om te kiezen, tik nogmaals om om te draaien" },
 }[LANG];
 
-// ── Sound effects only ─────────────────────────────────────────────────────
+// ── Sound effects — the same as the single-player game (sound effects only, no speech) ──
 let audioCtx = null;
-function beep(freq, dur, vol = 0.3, delay = 0, type = "sine") {
+function beep(freq, type, duration, volume = 0.35, startDelay = 0) {
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     const o = audioCtx.createOscillator(), g = audioCtx.createGain();
     o.connect(g); g.connect(audioCtx.destination); o.type = type; o.frequency.value = freq;
-    const t = audioCtx.currentTime + delay;
-    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.start(t); o.stop(t + dur);
+    const t = audioCtx.currentTime + startDelay;
+    g.gain.setValueAtTime(volume, t); g.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    o.start(t); o.stop(t + duration);
   } catch (_) {}
 }
 const unlockAudio = () => { if (audioCtx && audioCtx.state === "suspended") audioCtx.resume(); };
-const soundFlip = () => beep(420, 0.07, 0.25, 0, "triangle");
-const soundPair = () => { beep(660, 0.12, 0.3); beep(880, 0.16, 0.3, 0.1); };
-const soundNoPair = () => beep(170, 0.22, 0.25, 0, "sawtooth");
-const soundWin = () => [[523, 0], [659, .14], [784, .28], [1046, .42]].forEach(([f, d]) => beep(f, .28, .4, d));
-const soundLose = () => { beep(200, .35, .25, 0, "sawtooth"); beep(160, .45, .25, .35, "sawtooth"); };
-const soundDraw = () => { beep(350, .2, .3); beep(350, .2, .3, .28); };
+const playFlip    = () => beep(700, "sine", 0.07, 0.18);
+const playMatch   = () => { beep(523, "sine", 0.15, 0.35, 0); beep(784, "sine", 0.22, 0.35, 0.14); };
+const playNoMatch = () => beep(220, "sawtooth", 0.20, 0.22);
+const playWin     = () => [[523, 0], [659, .13], [784, .26], [1046, .40]].forEach(([f, d]) => beep(f, "sine", .28, .4, d));
+const playLose    = () => { beep(200, "sawtooth", .35, .25, 0); beep(160, "sawtooth", .45, .25, .35); };
+const playDraw    = () => { beep(350, "sine", .2, .3, 0); beep(350, "sine", .2, .3, .28); };
 
-// ── The 8 symbols: drawn as SVG (shape AND colour differ), so no emoji font is needed on the TV ──
-const SYMS = [
-  '<svg viewBox="0 0 100 100"><polygon fill="#e6b800" points="50,7 61,38 94,38 67,58 77,91 50,71 23,91 33,58 6,38 39,38"/></svg>',   // star
-  '<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="30" fill="none" stroke="#1e88e5" stroke-width="15"/></svg>',                  // ring
-  '<svg viewBox="0 0 100 100"><path fill="#e5395a" d="M50 90C8 60 6 28 27 19c13-5 21 3 23 12 2-9 10-17 23-12 21 9 19 41-23 71z"/></svg>', // heart
-  '<svg viewBox="0 0 100 100"><polygon fill="#2e9e44" points="50,10 93,88 7,88"/></svg>',                                            // triangle
-  '<svg viewBox="0 0 100 100"><rect x="17" y="17" width="66" height="66" rx="6" fill="#8e5cf7"/></svg>',                              // square
-  '<svg viewBox="0 0 100 100"><path fill="#0fb5a8" d="M38 8h24v30h30v24H62v30H38V62H8V38h30z"/></svg>',                              // plus
-  '<svg viewBox="0 0 100 100"><polygon fill="#f0762c" points="50,6 94,50 50,94 6,50"/></svg>',                                        // diamond
-  '<svg viewBox="0 0 100 100"><polygon fill="#d1478d" points="26,14 74,14 96,50 74,86 26,86 4,50"/></svg>',                           // hexagon
-];
-const PAIRS = 8, CARDS = 2 * PAIRS, COLS = 4;
+// ── The cards: the same six symbols, in a 4×3 grid, as the single-player game ──
+const SYMBOLS = ["⭐", "🌙", "🎵", "❤️", "🌺", "🍀"];
+const PAIRS = SYMBOLS.length, CARDS = 2 * PAIRS, COLS = 4, ROWS = CARDS / COLS;
 const RESOLVE_MATCH_MS = 900, RESOLVE_MISS_MS = 1700;      // how long the two cards stay visible before they resolve
 
 // ── GAME STATE: the HOST owns it and publishes it whole ────────────────────
@@ -165,9 +227,10 @@ function validSnapshot(s) {
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
 let S = null, sess = null, me = 1;
-let cursor = 5;                  // my cursor (a card 0..15)
+let cursor = 5;                  // my cursor (a card 0..11)
 let armed = null;                // touch: the card I tapped once (a second tap flips it)
 let oppCur = null;               // the opponent's live cursor
+let showAgain = false, againTimer = null;   // like the single-player game: the result first, then "press any key to play again"
 let linked = false, everLinked = false, peerLeft = false;
 let pending = false, pendingRev = null, pendingToken = 0;
 let resolveTimer = null;         // host: the timer that turns two face-up cards into a pair or back down
@@ -177,54 +240,66 @@ let lastFocusSent = 0, focusTimer = null;
 const myTurn = () => !!S && linked && !peerLeft && S.status === "playing" && S.turn === me;
 const canPlay = () => myTurn() && !S.busy && !pending;
 
-// ── DOM ────────────────────────────────────────────────────────────────────
+// ── DOM: the cards are built once, so that flipping can animate ────────────
 const $ = (id) => document.getElementById(id);
 $("title-el").textContent = T.title;
-function setStatus(text, cls) { $("status").textContent = text; $("status").className = cls; }
-
-function render() {
+const cardEls = [];
+function buildBoard() {
   const board = $("board"); board.innerHTML = "";
-  const showOpp = !!S && S.status === "playing" && linked && !peerLeft && S.turn === 3 - me && oppCur !== null;
   for (let i = 0; i < CARDS; i++) {
-    const el = document.createElement("div");
-    const st = S ? S.st[i] : 0;
-    el.className = "card " + (st === 0 ? "down" : st === 1 ? "up" : "matched by" + S.own[i]);
-    if (S && st !== 0) el.innerHTML = SYMS[S.sym[i]];            // the visible symbol
-    if (canPlay() && i === cursor) el.classList.add("cur");
-    if (showOpp && i === oppCur) el.classList.add("opp-cur");
+    const el = document.createElement("div"), inner = document.createElement("div"),
+          cover = document.createElement("div"), face = document.createElement("div");
+    el.className = "card"; inner.className = "card-inner"; cover.className = "card-cover"; face.className = "card-face";
+    inner.appendChild(cover); inner.appendChild(face); el.appendChild(inner);
     el.addEventListener("click", () => {
+      unlockAudio();
+      if (S && S.status !== "playing") { requestRematch(); return; }                                          // after the game: play again
       cursor = i;
-      if (TOUCH && canPlay() && S.st[i] === 0 && armed !== i) { armed = i; render(); sendFocus(); return; }   // touch: select first…
+      if (TOUCH && canPlay() && S && S.st[i] === 0 && armed !== i) { armed = i; render(); sendFocus(); return; }   // touch: select first…
       activate(i);                                                                                             // …then flip
     });
     board.appendChild(el);
+    cardEls.push({ el, face });
   }
+}
+buildBoard();
+function setStatus(text, cls) { $("status").textContent = text; $("status").className = cls; }
+
+function render() {
+  const showOpp = !!S && S.status === "playing" && linked && !peerLeft && S.turn === 3 - me && oppCur !== null;
+  cardEls.forEach((c, i) => {
+    const st = S ? S.st[i] : 0;
+    if (S) c.face.textContent = SYMBOLS[S.sym[i]];
+    c.el.classList.toggle("flipped", st === 1);
+    c.el.classList.toggle("matched", st === 2);
+    c.el.classList.toggle("by1", st === 2 && S.own[i] === 1);
+    c.el.classList.toggle("by2", st === 2 && S.own[i] === 2);
+    c.el.classList.toggle("focused", canPlay() && i === cursor && st !== 2);
+    c.el.classList.toggle("opp-focused", showOpp && i === oppCur && st !== 2);
+  });
   renderStatus();
 }
 
 function renderStatus() {
   const over = !!S && S.status !== "playing";
+  const found = S ? S.pairs[1] + S.pairs[2] : 0;
+  $("pairs-count").textContent = T.pairs(found, PAIRS);
+  $("versus").innerHTML = S ? `${T.you} <b style="color:var(--me)">${S.pairs[me]}</b> – <b style="color:var(--opp)">${S.pairs[3 - me]}</b> ${T.opp}` : "";
+  $("score").textContent = S && (S.score[1] + S.score[2] > 0) ? T.games.replace("{me}", S.score[me]).replace("{opp}", S.score[3 - me]) : "";
   $("me-text").textContent = me === 1 ? T.playBlue : T.playOrange;
-  $("hint").textContent = TOUCH ? (over ? "" : T.hintTouch) : (over ? T.hintOver : T.hint);
-  $("pairs").textContent = S ? T.pairs.replace("{me}", S.pairs[me]).replace("{opp}", S.pairs[3 - me]) : "";
-  $("score").textContent = S ? T.score.replace("{me}", S.score[me]).replace("{opp}", S.score[3 - me]) : "";
-  let again = false, againText = T.again, againOff = false;
+  $("hint").textContent = TOUCH ? (over ? "" : T.hintTouch) : (over ? "" : T.hint);
   if (peerLeft)          setStatus(T.oppLeft, "lose");
   else if (!linked)      setStatus(everLinked ? T.lost : (me === 1 ? T.waitOpp : T.connecting), "waiting");
   else if (!S)           setStatus(T.connecting, "waiting");
   else if (S.status === "playing") {
-    if (S.busy) { const a = S.sym[S.up[0]] === S.sym[S.up[1]]; setStatus(a ? T.pair : T.nopair, a ? "good" : "waiting"); }
+    if (S.busy) { const a = S.sym[S.up[0]] === S.sym[S.up[1]]; setStatus(a ? T.matched : T.noMatch, a ? "matched" : "no-match"); }
     else if (S.turn !== me) setStatus(T.oppTurn, "waiting");
-    else setStatus(S.up.length === 1 ? T.second : T.yourTurn, "your-turn");
+    else setStatus(T.yourTurn, "your-turn");
+  } else if (!showAgain) {
+    setStatus(S.status === "draw" ? T.draw : (S.winner === me ? T.youWin : T.youLose), S.status === "draw" ? "idle" : (S.winner === me ? "win" : "lose"));
   } else {
-    setStatus(S.status === "draw" ? T.draw : (S.winner === me ? T.youWin : T.youLose), S.status === "draw" ? "draw" : (S.winner === me ? "win" : "lose"));
-    again = true;
-    if (S.rematch[me]) { againText = T.waitAgain; againOff = true; }
-    else if (S.rematch[3 - me]) againText = T.again + " — " + T.oppAgain;
+    setStatus(S.rematch[me] ? T.waitAgain : S.rematch[3 - me] ? T.oppAgain : T.pressAgain, "idle");
   }
-  $("again").classList.toggle("hidden", !again);
-  $("again").textContent = againText;
-  $("again").disabled = againOff;
 }
 
 // ── Live cursor ────────────────────────────────────────────────────────────
@@ -243,11 +318,16 @@ function adopt(next) {
   S = next;
   if (pending && !(prev && prev.epoch === next.epoch && next.rev <= pendingRev)) pending = false;
   armed = null; oppCur = null;
+  const finished = next.status !== "playing" && (!prev || prev.status === "playing");
+  if (!(prev && prev.status !== "playing" && next.status !== "playing")) {                 // (a rematch request during the result keeps the timer running)
+    showAgain = false; clearTimeout(againTimer);
+    if (next.status !== "playing") againTimer = setTimeout(() => { showAgain = true; render(); }, 2200);
+  }
   render();
   setTimeout(() => {                                             // sounds after drawing / publishing
-    if (prev && next.up.length > prev.up.length) soundFlip();
-    if (prev && !prev.busy && next.busy) (next.sym[next.up[0]] === next.sym[next.up[1]] ? soundPair : soundNoPair)();
-    if (next.status !== "playing" && (!prev || prev.status === "playing")) next.status === "draw" ? soundDraw() : next.winner === me ? soundWin() : soundLose();
+    if (prev && next.up.length > prev.up.length) playFlip();
+    if (prev && !prev.busy && next.busy) (next.sym[next.up[0]] === next.sym[next.up[1]] ? playMatch : playNoMatch)();
+    if (finished) next.status === "draw" ? playDraw() : next.winner === me ? playWin() : playLose();
   }, 0);
   if (myTurn()) sendFocus(true);
 }
@@ -314,14 +394,13 @@ function activate(i) {                                                   // Ente
   render();
 }
 function moveCursor(dx, dy) {
-  const c = Math.max(0, Math.min(COLS - 1, (cursor % COLS) + dx)), r = Math.max(0, Math.min(CARDS / COLS - 1, Math.floor(cursor / COLS) + dy));
+  const c = Math.max(0, Math.min(COLS - 1, (cursor % COLS) + dx)), r = Math.max(0, Math.min(ROWS - 1, Math.floor(cursor / COLS) + dy));
   cursor = r * COLS + c; armed = null; render(); sendFocus();
 }
 function requestRematch() {
   if (!S || S.status === "playing" || peerLeft || !linked || S.rematch[me]) return;
   me === 1 ? hostRematch(1) : sess.send("rematch");
 }
-$("again").addEventListener("click", () => { unlockAudio(); requestRematch(); });
 
 document.addEventListener("keydown", (e) => {
   unlockAudio();
@@ -340,7 +419,7 @@ function pollGamepad() {
   const gp = navigator.getGamepads?.()[0];
   if (gp) {
     const hit = (i) => gp.buttons[i]?.pressed && !gpPrev[i];
-    if (S && S.status !== "playing") { if (hit(9)) sess.leave(); else if ([0, 1, 2, 3].some(hit)) requestRematch(); }
+    if (S && S.status !== "playing") { if (hit(9)) sess.leave(); else if ([0, 1, 2, 3, 12, 13, 14, 15].some(hit)) requestRematch(); }
     else {
       if (hit(14) || (gp.axes[0] < -.5 && !gpPrev.axL)) moveCursor(-1, 0);
       if (hit(15) || (gp.axes[0] >  .5 && !gpPrev.axR)) moveCursor(1, 0);
@@ -400,7 +479,7 @@ window.eldaDebugState = () => S;
 window.eldaDebugInvariant = (s) => {
   const count = {}; let matched = 0;
   for (let i = 0; i < CARDS; i++) { count[s.sym[i]] = (count[s.sym[i]] || 0) + 1; if (s.st[i] === 2) { matched++; if (s.own[i] !== 1 && s.own[i] !== 2) return "a matched card without an owner"; } }
-  if (Object.values(count).some((n) => n !== 2) || Object.keys(count).length !== PAIRS) return "the symbols are not 8 exact pairs";
+  if (Object.values(count).some((n) => n !== 2) || Object.keys(count).length !== PAIRS) return "the symbols are not " + PAIRS + " exact pairs";
   if (s.up.length !== s.st.filter((v) => v === 1).length) return "the face-up list does not match the cards showing";
   if (s.up.length > 2) return "more than two cards face up";
   if (s.busy && s.up.length !== 2) return "busy without two cards face up";

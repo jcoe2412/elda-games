@@ -4,123 +4,176 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
 <title>Simon duel — online</title>
+<!-- Look & feel: identical to the single-player Simon (../../simon/index.html). Only what two players need is added
+     (scores of both players, the opponent's live presses, a phone layout). -->
 <style>
-  :root {
-    --bg: #0e0e1c; --border: #4a4a90; --text: #e0e0e0; --dim: #8a8aa0;
-    --p1: #4488ff; --p2: #ff6633;                        /* host / guest */
-    --me: var(--p1); --opp: var(--p2);
-    --green: #22bb33; --red: #dd2200; --yellow: #ddaa00;
-    --pad: min(19vh, 19vw); --gap: 14px;                 /* TV (landscape) */
-  }
-  @media (max-aspect-ratio: 1/1) {                       /* phone in portrait */
-    :root { --pad: min(calc((100vw - 48px) / 3), 16vh); --gap: 10px; }
-    h1 { font-size: 1.6rem !important; }
-    #status { font-size: 1.3rem !important; min-height: 1.8rem !important; }
-    #meta { font-size: .85rem !important; }
-  }
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
-    width: 100%; height: 100%; background: var(--bg); color: var(--text);
+    width: 100%; height: 100%;
+    background: #0e0e1c;
+    color: #e0e0e0;
     font-family: 'Segoe UI', Arial, sans-serif;
     display: flex; align-items: center; justify-content: center;
     overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: manipulation;
   }
-  #game { display: flex; flex-direction: column; align-items: center; gap: .8rem; padding: .5rem; }
-  h1 { font-size: 2.8rem; font-weight: 900; letter-spacing: .06em; }
-  #status { font-size: 2.1rem; font-weight: 700; min-height: 2.6rem; text-align: center; transition: color .25s; }
-  #status.your-turn { color: var(--me); } #status.waiting { color: var(--yellow); }
-  #status.win { color: var(--green); } #status.lose { color: var(--red); }
+  #game {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 0.9rem;
+    padding: 0.5rem;
+  }
+  #scoreboard {
+    display: flex; gap: 2.5rem;
+    font-size: 1.4rem; color: #666;
+  }
+  #scoreboard span b { color: #ddd; font-size: 1.8rem; }
+  #status {
+    font-size: 2.2rem; font-weight: 700; min-height: 2.7rem;
+    text-align: center; letter-spacing: .02em;
+  }
+  #status.watching  { color: #ddaa00; }
+  #status.your-turn { color: #22bb33; }
+  #status.wrong     { color: #dd2200; }
+  #status.idle      { color: #555; }
 
-  /* the four pads in a cross, like the arrow keys */
-  #pads { display: grid; grid-template-columns: repeat(3, var(--pad)); grid-template-rows: repeat(3, var(--pad)); gap: var(--gap); }
-  .pad { border-radius: 22%; cursor: pointer; display: flex; align-items: center; justify-content: center;
-         border: 6px solid rgba(255,255,255,.25); opacity: .42; transition: opacity .08s, transform .08s, box-shadow .08s; }
-  .pad svg { width: 46%; height: 46%; fill: rgba(255,255,255,.85); }
-  .pad.p0 { grid-area: 1 / 2; background: #22b04a; }   /* up    */
-  .pad.p1 { grid-area: 2 / 3; background: #e5393a; }   /* right */
-  .pad.p2 { grid-area: 3 / 2; background: #eab80f; }   /* down  */
-  .pad.p3 { grid-area: 2 / 1; background: #2f7cf6; }   /* left  */
-  .pad.lit { opacity: 1; transform: scale(1.07); box-shadow: 0 0 34px 8px rgba(255,255,255,.55); border-color: #fff; }
-  .pad.expected { opacity: 1; box-shadow: 0 0 0 8px var(--red); }
-  #center { grid-area: 2 / 2; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-  #len { font-size: calc(var(--pad) * .5); font-weight: 900; line-height: 1; }
-  #len-label { font-size: .9rem; color: var(--dim); margin-top: .3rem; }
+  /* The SVG pad — fills up to 62% of the smaller viewport dimension */
+  #pad {
+    width:  min(62vh, 62vw);
+    height: min(62vh, 62vw);
+    display: block;
+  }
+  .seg { cursor: pointer; }
 
-  #meta { display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap; justify-content: center; color: var(--dim); font-size: .95rem; }
-  #me-badge { display: inline-flex; align-items: center; gap: .5rem; padding: .2rem .7rem; border: 1px solid #333; border-radius: 99px; }
-  #me-dot { width: .9em; height: .9em; border-radius: 50%; background: var(--me); }
-  #again { font: inherit; font-size: 1.3rem; font-weight: 700; min-height: 48px; padding: .5rem 1.8rem; border: 0; border-radius: 99px;
-           background: var(--me); color: #fff; cursor: pointer; }
-  #again:disabled { background: #333; color: var(--dim); cursor: default; }
-  .hidden { display: none !important; }
+  #progress { display: flex; gap: .5rem; min-height: 12px; }
+  .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    background: #333; transition: background .15s;
+  }
+  .dot.done  { background: #22bb33; }
+  .dot.wrong { background: #dd2200; }
+  #hint {
+    font-size: 0.95rem; color: #555; text-align: center;
+    line-height: 1.7; white-space: pre; min-height: 3rem;
+  }
+
+  @media (max-aspect-ratio: 1/1) {                       /* phone in portrait: the same, sized for the width */
+    #pad { width: min(60vh, 88vw); height: min(60vh, 88vw); }
+    #scoreboard { gap: 1.2rem; font-size: 1.05rem; }
+    #scoreboard span b { font-size: 1.4rem; }
+    #status { font-size: 1.3rem; min-height: 1.8rem; }
+    #hint { font-size: .8rem; min-height: 2.2rem; }
+  }
 </style>
 </head>
 <body>
 <div id="game">
-  <h1 id="title-el"></h1>
-  <div id="status" class="waiting"></div>
-  <div id="pads"></div>
-  <div id="meta">
-    <span id="me-badge"><span id="me-dot"></span><span id="me-text"></span></span>
-    <span id="score"></span>
-    <span id="hint"></span>
+  <div id="scoreboard">
+    <span id="lbl-level"></span>
+    <span id="lbl-you"></span>
+    <span id="lbl-opp"></span>
   </div>
-  <button id="again" class="hidden"></button>
+  <div id="status" class="idle"></div>
+
+  <!-- Circular Simon pad — the same SVG as the single-player game (viewBox 400×400, centre (200,200)).
+       idx=0 Top ↑ Red   idx=1 Right → Green   idx=2 Bottom ↓ Blue   idx=3 Left ← Yellow -->
+  <svg id="pad" viewBox="0 0 400 400" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="200" cy="200" r="198" fill="#0a0a0a"/>
+    <circle cx="200" cy="200" r="193" fill="#131313"/>
+
+    <path id="seg-0" class="seg" data-idx="0" d="M 200 200 L 82.2 69.2 A 176 176 0 0 1 317.8 69.2 Z" fill="#cc1100"/>
+    <path id="seg-1" class="seg" data-idx="1" d="M 200 200 L 330.8 82.2 A 176 176 0 0 1 330.8 317.8 Z" fill="#009922"/>
+    <path id="seg-2" class="seg" data-idx="2" d="M 200 200 L 317.8 330.8 A 176 176 0 0 1 82.2 330.8 Z" fill="#1155cc"/>
+    <path id="seg-3" class="seg" data-idx="3" d="M 200 200 L 69.2 317.8 A 176 176 0 0 1 69.2 82.2 Z" fill="#cc9900"/>
+
+    <circle cx="200" cy="200" r="64" fill="#1e1e1e" pointer-events="none"/>
+    <circle cx="200" cy="200" r="58" fill="#111111" pointer-events="none"/>
+    <rect x="191" y="147" width="18" height="11" rx="5" fill="#242424" stroke="#333" stroke-width="1" pointer-events="none"/>
+    <rect x="196" y="150" width="8" height="5" rx="2" fill="#4a4a4a" pointer-events="none"/>
+    <text x="200" y="197" text-anchor="middle" dominant-baseline="middle" fill="white"
+          font-size="27" font-weight="900" letter-spacing="-1"
+          font-family="'Arial Black', 'Impact', Arial, sans-serif" pointer-events="none">simon</text>
+    <g pointer-events="none" fill="#1f1f1f">
+      <circle cx="183" cy="214" r="2.4"/> <circle cx="191" cy="214" r="2.4"/> <circle cx="199" cy="214" r="2.4"/> <circle cx="207" cy="214" r="2.4"/> <circle cx="215" cy="214" r="2.4"/>
+      <circle cx="183" cy="222" r="2.4"/> <circle cx="191" cy="222" r="2.4"/> <circle cx="199" cy="222" r="2.4"/> <circle cx="207" cy="222" r="2.4"/> <circle cx="215" cy="222" r="2.4"/>
+      <circle cx="187" cy="230" r="2.4"/> <circle cx="195" cy="230" r="2.4"/> <circle cx="203" cy="230" r="2.4"/> <circle cx="211" cy="230" r="2.4"/>
+    </g>
+    <text x="200" y="44"  text-anchor="middle" fill="rgba(255,255,255,0.28)" font-size="15" pointer-events="none">↑</text>
+    <text x="357" y="205" text-anchor="middle" fill="rgba(255,255,255,0.28)" font-size="15" pointer-events="none">→</text>
+    <text x="200" y="370" text-anchor="middle" fill="rgba(255,255,255,0.28)" font-size="15" pointer-events="none">↓</text>
+    <text x="43"  y="205" text-anchor="middle" fill="rgba(255,255,255,0.28)" font-size="15" pointer-events="none">←</text>
+  </svg>
+
+  <div id="progress"></div>
+  <div id="hint"></div>
 </div>
 
 <script src="../elda-online.js"></script>
 <script>
-// ── i18n (en / fr / nl). No text-to-speech: online games run during a video call. ──
+// ── i18n (en / fr / nl) — the single-player wording where it exists. No text-to-speech: online games run during a video call. ──
 const PARAMS = new URLSearchParams(location.search);
 const LANG = (() => {
   const l = (PARAMS.get("lang") || "en").split(/[-_]/)[0].toLowerCase();
   return ["fr", "nl"].includes(l) ? l : "en";
 })();
 const T = {
-  en: { title: "Simon duel", watch: "Watch the sequence…", first: "You start — pick any colour", repeat: "Your turn — repeat the sequence",
-        add: "Now add ONE new colour", oppTurn: "Opponent's turn", oppWatch: "Both watch the sequence…", sent: "…",
-        youWin: "You win! 🎉", youLose: "You lose", wrongYou: "You pressed the wrong colour", wrongOpp: "Your opponent pressed the wrong colour",
-        again: "Play again", waitAgain: "Waiting for your opponent…", oppAgain: "Your opponent wants a rematch",
-        waitOpp: "Waiting for your opponent…", connecting: "Connecting…", lost: "Connection lost — waiting…",
-        oppLeft: "Your opponent left the game", playBlue: "You are blue", playOrange: "You are orange", score: "You {me} – {opp} Opponent",
-        len: "in the sequence", hint: "← ↑ → ↓  colours   Esc  quit", hintOver: "Enter / A  play again   Esc  quit", hintTouch: "Tap the colours" },
-  fr: { title: "Duel Simon", watch: "Regardez la séquence…", first: "Vous commencez — choisissez une couleur", repeat: "Votre tour — répétez la séquence",
-        add: "Ajoutez maintenant UNE couleur", oppTurn: "Tour de l'adversaire", oppWatch: "Regardez tous les deux la séquence…", sent: "…",
-        youWin: "Vous gagnez ! 🎉", youLose: "Vous perdez", wrongYou: "Vous avez appuyé sur la mauvaise couleur", wrongOpp: "Votre adversaire s'est trompé de couleur",
-        again: "Rejouer", waitAgain: "En attente de votre adversaire…", oppAgain: "Votre adversaire veut rejouer",
-        waitOpp: "En attente de votre adversaire…", connecting: "Connexion…", lost: "Connexion perdue — en attente…",
-        oppLeft: "Votre adversaire a quitté la partie", playBlue: "Vous êtes bleu", playOrange: "Vous êtes orange", score: "Vous {me} – {opp} Adversaire",
-        len: "dans la séquence", hint: "← ↑ → ↓  couleurs   Échap  quitter", hintOver: "Entrée / A  rejouer   Échap  quitter", hintTouch: "Touchez les couleurs" },
-  nl: { title: "Simon-duel", watch: "Kijk naar de reeks…", first: "U begint — kies een kleur", repeat: "Uw beurt — herhaal de reeks",
-        add: "Voeg nu ÉÉN nieuwe kleur toe", oppTurn: "Beurt van de tegenstander", oppWatch: "Kijk allebei naar de reeks…", sent: "…",
-        youWin: "U wint! 🎉", youLose: "U verliest", wrongYou: "U drukte op de verkeerde kleur", wrongOpp: "Uw tegenstander drukte op de verkeerde kleur",
-        again: "Nog een keer", waitAgain: "Wachten op uw tegenstander…", oppAgain: "Uw tegenstander wil opnieuw spelen",
-        waitOpp: "Wachten op uw tegenstander…", connecting: "Verbinden…", lost: "Verbinding verbroken — wachten…",
-        oppLeft: "Uw tegenstander heeft het spel verlaten", playBlue: "U bent blauw", playOrange: "U bent oranje", score: "U {me} – {opp} Tegenstander",
-        len: "in de reeks", hint: "← ↑ → ↓  kleuren   Esc  stoppen", hintOver: "Enter / A  opnieuw   Esc  stoppen", hintTouch: "Tik op de kleuren" },
+  en: { level: "Level", you: "You", opp: "Opponent", watch: "Watch carefully!", yourTurn: "Your turn!", first: "You start — pick any colour",
+        add: "Now add ONE more colour!", oppTurn: "Opponent's turn", wrong: "Wrong! ✗", youWin: "You win! 🎉",
+        pressAgain: "Press any key or button to play again", waitAgain: "Waiting for your opponent…", oppAgain: "Your opponent wants a rematch — press any key or button",
+        waitOpp: "Waiting for your opponent…", connecting: "Connecting…", lost: "Connection lost — waiting…", oppLeft: "Your opponent left the game", sent: "…",
+        keyHint: "↑ Red   → Green   ↓ Blue   ← Yellow" },
+  fr: { level: "Niveau", you: "Vous", opp: "Adversaire", watch: "Regardez bien !", yourTurn: "À vous !", first: "Vous commencez — choisissez une couleur",
+        add: "Ajoutez maintenant UNE couleur !", oppTurn: "Tour de l'adversaire", wrong: "Faux ! ✗", youWin: "Vous gagnez ! 🎉",
+        pressAgain: "Appuyez sur une touche ou un bouton pour rejouer", waitAgain: "En attente de votre adversaire…", oppAgain: "Votre adversaire veut rejouer — appuyez sur une touche",
+        waitOpp: "En attente de votre adversaire…", connecting: "Connexion…", lost: "Connexion perdue — en attente…", oppLeft: "Votre adversaire a quitté la partie", sent: "…",
+        keyHint: "↑ Rouge   → Vert   ↓ Bleu   ← Jaune" },
+  nl: { level: "Niveau", you: "U", opp: "Tegenstander", watch: "Kijk goed!", yourTurn: "Uw beurt!", first: "U begint — kies een kleur",
+        add: "Voeg nu ÉÉN kleur toe!", oppTurn: "Beurt van de tegenstander", wrong: "Fout! ✗", youWin: "U wint! 🎉",
+        pressAgain: "Druk een toets of knop in om opnieuw te spelen", waitAgain: "Wachten op uw tegenstander…", oppAgain: "Uw tegenstander wil opnieuw spelen — druk een toets in",
+        waitOpp: "Wachten op uw tegenstander…", connecting: "Verbinden…", lost: "Verbinding verbroken — wachten…", oppLeft: "Uw tegenstander heeft het spel verlaten", sent: "…",
+        keyHint: "↑ Rood   → Groen   ↓ Blauw   ← Geel" },
 }[LANG];
 
-// ── Sound effects only: one tone per colour ────────────────────────────────
+// ── Segment colours (dim / lit / glow) — as in the single-player game ─────
+// idx: 0=Red(↑)  1=Green(→)  2=Blue(↓)  3=Yellow(←)
+const SEG = [
+  { dim: "#cc1100", lit: "#ff4422", glow: "#ff4422" },
+  { dim: "#009922", lit: "#33ee55", glow: "#33ee55" },
+  { dim: "#1155cc", lit: "#3399ff", glow: "#3399ff" },
+  { dim: "#cc9900", lit: "#ffdd33", glow: "#ffdd33" },
+];
+
+// ── Audio: the same classic Simon tones as the single-player game (sound effects only) ──
+const TONES = [196, 330, 262, 392];
 let audioCtx = null;
-function beep(freq, dur, vol = 0.3, delay = 0, type = "sine") {
+function getAudioCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function playTone(idx, duration = 350) {
   try {
-    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
-    o.connect(g); g.connect(audioCtx.destination); o.type = type; o.frequency.value = freq;
-    const t = audioCtx.currentTime + delay;
-    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.start(t); o.stop(t + dur);
+    const ctx = getAudioCtx(), osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = "sine"; osc.frequency.value = TONES[idx];
+    gain.gain.setValueAtTime(0.55, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration / 1000);
+    osc.start(); osc.stop(ctx.currentTime + duration / 1000);
   } catch (_) {}
 }
+function playWrongSound() {
+  try {
+    const ctx = getAudioCtx(), osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = "sawtooth"; osc.frequency.value = 120;
+    gain.gain.setValueAtTime(0.4, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.7);
+    osc.start(); osc.stop(ctx.currentTime + 0.7);
+  } catch (_) {}
+}
+function playWinSound() { [[523, 0], [659, .14], [784, .28], [1046, .42]].forEach(([f, d]) => setTimeout(() => playTone(0, 1), d * 1000)); }
 const unlockAudio = () => { if (audioCtx && audioCtx.state === "suspended") audioCtx.resume(); };
-const TONES = [523, 392, 330, 262];                                    // up, right, down, left
-const tone = (p, ms = 250) => beep(TONES[p], ms / 1000, 0.3, 0, "triangle");
-const soundWin = () => [[523, 0], [659, .14], [784, .28], [1046, .42]].forEach(([f, d]) => beep(f, .28, .4, d));
-const soundLose = () => { beep(200, .35, .25, 0, "sawtooth"); beep(160, .45, .25, .35, "sawtooth"); };
 
 // ── The rules ──────────────────────────────────────────────────────────────
 //  A shared sequence of colours. On your turn you repeat the WHOLE sequence, then add ONE new colour.
-//  The first wrong press loses. Colours: 0 up (green), 1 right (red), 2 down (yellow), 3 left (blue).
+//  The first wrong press loses. Colours: 0 Red ↑, 1 Green →, 2 Blue ↓, 3 Yellow ←.
 //  The whole turn travels as ONE intent {pads, ply}: the phone plays with instant feedback, whatever the network does.
 const EPOCH = Math.random().toString(36).slice(2, 10);
 function newRound(starter, score) {
@@ -133,96 +186,91 @@ function validSnapshot(s) {
     && (s.fail === null || (s.fail && Number.isInteger(s.fail.expected))) && s.score && s.rematch;
 }
 const clone = (o) => JSON.parse(JSON.stringify(o));
-const stepMs = (n) => Math.max(280, 700 - 30 * n);                     // faster as the sequence grows
+// pacing, exactly as in the single-player game
+const stepMs = (level) => Math.max(200, 500 - level * 12);
+const gapMs  = (level) => Math.max(100, stepMs(level) * 0.4);
 
 let S = null, sess = null, me = 1;
 let phase = "idle";              // "watch" (the sequence plays) | "ready" (played: on my turn I may press, on theirs I watch live) | "sent" | "over"
 let entered = [];                // my presses this turn
-let lit = null, expectedPad = null;
 let oppN = 0;                    // how many pads the opponent has pressed this turn (live)
-let playToken = 0, litTimer = null;
+let playToken = 0;
+let showAgain = false, againTimer = null;   // like the single-player game: the result first, then "press any key to play again"
 let linked = false, everLinked = false, peerLeft = false;
 let pending = false, pendingRev = null, pendingToken = 0;
-const TOUCH = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
 
 const myTurn = () => !!S && linked && !peerLeft && S.status === "playing" && S.turn === me;
 const canAct = () => myTurn() && !pending && phase === "ready";
 
 // ── DOM ────────────────────────────────────────────────────────────────────
 const $ = (id) => document.getElementById(id);
-$("title-el").textContent = T.title;
-const ARROWS = [                                     // an arrow pointing up / right / down / left
-  '<svg viewBox="0 0 100 100"><polygon points="50,12 88,64 12,64"/></svg>',
-  '<svg viewBox="0 0 100 100"><polygon points="88,50 36,12 36,88"/></svg>',
-  '<svg viewBox="0 0 100 100"><polygon points="50,88 88,36 12,36"/></svg>',
-  '<svg viewBox="0 0 100 100"><polygon points="12,50 64,12 64,88"/></svg>',
-];
-for (let p = 0; p < 4; p++) {
-  const el = document.createElement("div");
-  el.className = "pad p" + p; el.innerHTML = ARROWS[p]; el.dataset.pad = p;
-  el.addEventListener("click", () => press(p));
-  $("pads").appendChild(el);
-}
-const center = document.createElement("div");
-center.id = "center"; center.innerHTML = '<div id="len">0</div><div id="len-label"></div>';
-$("pads").appendChild(center);
+$("hint").textContent = T.keyHint;
+[0, 1, 2, 3].forEach((i) => $("seg-" + i).addEventListener("click", () => input(i)));
 
 function setStatus(text, cls) { $("status").textContent = text; $("status").className = cls; }
-function litPad(p, ms, silent) {
-  clearTimeout(litTimer); lit = p; renderPads(); if (!silent) tone(p, Math.min(ms, 400));
-  litTimer = setTimeout(() => { if (lit === p) { lit = null; renderPads(); } }, ms);
+const litTok = [0, 0, 0, 0];             // a newer light on a pad cancels the "off" timer of an older one
+function setLit(idx, on) {
+  litTok[idx]++;
+  const el = $("seg-" + idx);
+  if (on) { el.setAttribute("fill", SEG[idx].lit); el.style.filter = `brightness(1.55) drop-shadow(0 0 18px ${SEG[idx].glow})`; }
+  else    { el.setAttribute("fill", SEG[idx].dim); el.style.filter = ""; }
 }
-function renderPads() {
-  const kids = $("pads").children;
-  for (let p = 0; p < 4; p++) { kids[p].classList.toggle("lit", lit === p); kids[p].classList.toggle("expected", expectedPad === p); }
+function flash(idx, duration = 350, silent) {
+  setLit(idx, true);
+  const tok = litTok[idx];
+  if (!silent) playTone(idx, duration);
+  setTimeout(() => { if (litTok[idx] === tok) setLit(idx, false); }, duration);
 }
+function renderProgress() {
+  const box = $("progress"); box.innerHTML = "";
+  const done = myTurn() ? entered.length : (S && S.turn !== me ? oppN : 0);
+  (S ? S.seq : []).forEach((_, i) => {
+    const dot = document.createElement("div");
+    dot.className = "dot" + (i < done ? " done" : "");
+    box.appendChild(dot);
+  });
+}
+function renderScoreboard() {
+  $("lbl-level").innerHTML = `${T.level}: <b>${S ? Math.max(1, S.seq.length) : 0}</b>`;
+  $("lbl-you").innerHTML   = `${T.you}: <b>${S ? S.score[me] : 0}</b>`;
+  $("lbl-opp").innerHTML   = `${T.opp}: <b>${S ? S.score[3 - me] : 0}</b>`;
+}
+
 function render() {
-  renderPads();
-  $("len").textContent = S ? S.seq.length : 0;
-  $("len-label").textContent = T.len;
-  const over = !!S && S.status !== "playing";
-  $("me-text").textContent = me === 1 ? T.playBlue : T.playOrange;
-  $("hint").textContent = TOUCH ? (over ? "" : T.hintTouch) : (over ? T.hintOver : T.hint);
-  $("score").textContent = S ? T.score.replace("{me}", S.score[me]).replace("{opp}", S.score[3 - me]) : "";
-  let again = false, againText = T.again, againOff = false;
-  if (peerLeft)          setStatus(T.oppLeft, "lose");
-  else if (!linked)      setStatus(everLinked ? T.lost : (me === 1 ? T.waitOpp : T.connecting), "waiting");
-  else if (!S)           setStatus(T.connecting, "waiting");
+  renderScoreboard(); renderProgress();
+  if (peerLeft)        setStatus(T.oppLeft, "wrong");
+  else if (!linked)    setStatus(everLinked ? T.lost : (me === 1 ? T.waitOpp : T.connecting), "watching");
+  else if (!S)         setStatus(T.connecting, "watching");
   else if (S.status === "playing") {
-    if (phase === "watch") setStatus(myTurn() ? T.watch : T.oppWatch, "waiting");
-    else if (S.turn !== me) setStatus(T.oppTurn, "waiting");
-    else if (pending || phase === "sent") setStatus(T.sent, "waiting");
+    if (phase === "watch") setStatus(T.watch, "watching");
+    else if (S.turn !== me) setStatus(T.oppTurn, "watching");
+    else if (pending || phase === "sent") setStatus(T.sent, "watching");
     else if (S.seq.length === 0) setStatus(T.first, "your-turn");
-    else setStatus(entered.length >= S.seq.length ? T.add : T.repeat, "your-turn");
+    else setStatus(entered.length >= S.seq.length ? T.add : T.yourTurn, "your-turn");
+  } else if (!showAgain) {
+    setStatus(S.winner === me ? T.youWin : T.wrong, S.winner === me ? "your-turn" : "wrong");
   } else {
-    const iWon = S.winner === me;
-    setStatus((iWon ? T.youWin : T.youLose) + (S.fail ? " — " + (S.fail.by === me ? T.wrongYou : T.wrongOpp) : ""), iWon ? "win" : "lose");
-    again = true;
-    if (S.rematch[me]) { againText = T.waitAgain; againOff = true; }
-    else if (S.rematch[3 - me]) againText = T.again + " — " + T.oppAgain;
+    setStatus(S.rematch[me] ? T.waitAgain : S.rematch[3 - me] ? T.oppAgain : T.pressAgain, "idle");
   }
-  $("again").classList.toggle("hidden", !again);
-  $("again").textContent = againText;
-  $("again").disabled = againOff;
 }
 
 // ── Playback: BOTH screens play the sequence at the start of a turn ────────
 function startPlayback() {
-  const token = ++playToken, seq = S.seq.slice(), step = stepMs(seq.length);
-  phase = "watch"; entered = []; oppN = 0; expectedPad = null; render();
+  const token = ++playToken, seq = S.seq.slice(), level = seq.length, step = stepMs(level), gap = gapMs(level);
+  phase = "watch"; entered = []; oppN = 0; render();
   let i = 0;
-  const next = () => {
+  const next = () => {                                    // (a timer chain rather than async/await: the test harness drives a virtual clock)
     if (token !== playToken) return;
-    if (i >= seq.length) { finishPlayback(token); return; }
-    litPad(seq[i], step * 0.6); i++;
-    setTimeout(next, step);
+    if (i >= seq.length) { setTimeout(() => finishPlayback(token), 400); return; }
+    flash(seq[i++], step);
+    setTimeout(next, step + gap);
   };
-  setTimeout(next, 600);
+  setTimeout(next, 400);
 }
 function finishPlayback(token) {
   if (token !== undefined && token !== playToken) return;
-  playToken++; lit = null;
-  phase = S && S.status === "playing" ? "ready" : "over";     // (decided later, from the CURRENT link/turn, by canAct)
+  playToken++;
+  phase = S && S.status === "playing" ? "ready" : "over";      // (whose turn it is decides, later, through canAct)
   entered = []; render();
 }
 
@@ -236,14 +284,13 @@ function adopt(next) {
     if (phase === "sent" && !pending) { phase = "ready"; entered = []; }  // ...but a turn the host refused is released
     render(); return;
   }
-  clearTimeout(litTimer); lit = null;
+  showAgain = false; clearTimeout(againTimer);
   if (next.status === "playing") startPlayback();
-  else {
-    playToken++; phase = "over"; entered = [];
-    expectedPad = next.fail ? next.fail.expected : null;
-    render();
-    setTimeout(() => { next.winner === me ? soundWin() : soundLose(); }, 0);
-    setTimeout(() => { expectedPad = null; renderPads(); }, 2500);
+  else {                                                                  // game over: as in the single-player game — a wrong sound, all four flash, then "press any key"
+    playToken++; phase = "over"; entered = []; render();
+    setTimeout(() => { if (next.winner === me) playWinSound(); else playWrongSound(); }, 0);
+    setTimeout(() => [0, 1, 2, 3].forEach((i) => flash(i, 600, true)), 150);
+    againTimer = setTimeout(() => { showAgain = true; render(); }, 1800);
   }
 }
 
@@ -281,10 +328,11 @@ function hostRematch(piece) {
 }
 
 // ── Local input ────────────────────────────────────────────────────────────
-function press(p) {
+function input(p) {
   unlockAudio();
+  if (S && S.status !== "playing") { requestRematch(); return; }          // any colour / key / button after the game: play again
   if (!canAct()) return;
-  litPad(p, 220);
+  flash(p, 250);
   if (linked) sess.send("focus", { pad: p, n: entered.length });          // the opponent watches my presses live
   const k = entered.length;
   entered.push(p);
@@ -303,32 +351,30 @@ function requestRematch() {
   if (!S || S.status === "playing" || peerLeft || !linked || S.rematch[me]) return;
   me === 1 ? hostRematch(1) : sess.send("rematch");
 }
-$("again").addEventListener("click", () => { unlockAudio(); requestRematch(); });
 
-const KEYPAD = { ArrowUp: 0, ArrowRight: 1, ArrowDown: 2, ArrowLeft: 3 };
+// Keyboard — as in the single-player game: Up=Red Right=Green Down=Blue Left=Yellow (WASD too)
+const KEY_MAP = { ArrowUp: 0, w: 0, W: 0, ArrowRight: 1, d: 1, D: 1, ArrowDown: 2, s: 2, S: 2, ArrowLeft: 3, a: 3, A: 3 };
 document.addEventListener("keydown", (e) => {
   unlockAudio();
   if (e.key === "Escape") { sess.leave(); return; }
   if (S && S.status !== "playing") { if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) requestRematch(); return; }
-  if (e.key in KEYPAD) { e.preventDefault(); press(KEYPAD[e.key]); }
+  if (KEY_MAP[e.key] !== undefined) { e.preventDefault(); input(KEY_MAP[e.key]); }
 });
 document.addEventListener("pointerdown", unlockAudio);
 
-let gpPrev = [];                                                         // gamepad: the d-pad (standard mapping); B / Start quit
+// Gamepad — as in the single-player game: A/B/X/Y = the four colours, and so is the d-pad; Start quits
+const GP_MAP = { 0: 0, 1: 1, 2: 2, 3: 3, 12: 0, 15: 1, 13: 2, 14: 3 };
+let gpPrev = {};
 function pollGamepad() {
   const gp = navigator.getGamepads?.()[0];
   if (gp) {
-    const hit = (i) => gp.buttons[i]?.pressed && !gpPrev[i];
-    if (S && S.status !== "playing") { if (hit(9)) sess.leave(); else if ([0, 1, 2, 3].some(hit)) requestRematch(); }
-    else {
-      if (hit(12) || (gp.axes[1] < -.5 && !gpPrev.axU)) press(0);
-      if (hit(15) || (gp.axes[0] >  .5 && !gpPrev.axR)) press(1);
-      if (hit(13) || (gp.axes[1] >  .5 && !gpPrev.axD)) press(2);
-      if (hit(14) || (gp.axes[0] < -.5 && !gpPrev.axL)) press(3);
-      if (hit(1) || hit(9)) sess.leave();
+    for (const [btn, idx] of Object.entries(GP_MAP)) {
+      const pressed = gp.buttons[btn]?.pressed;
+      if (pressed && !gpPrev[btn]) input(idx);
+      gpPrev[btn] = pressed;
     }
-    gpPrev = gp.buttons.map((b) => b.pressed);
-    gpPrev.axL = gp.axes[0] < -.5; gpPrev.axR = gp.axes[0] > .5; gpPrev.axU = gp.axes[1] < -.5; gpPrev.axD = gp.axes[1] > .5;
+    if (gp.buttons[9]?.pressed && !gpPrev[9]) sess.leave();
+    gpPrev[9] = gp.buttons[9]?.pressed;
   }
   requestAnimationFrame(pollGamepad);
 }
@@ -347,7 +393,7 @@ sess = EldaOnline.connect({
   onMessage: (type, payload) => {
     if (type === "focus") {                                              // the opponent's press, live
       const p = payload && payload.pad;
-      if (S && S.status === "playing" && S.turn !== me && phase === "ready" && Number.isInteger(p) && p >= 0 && p <= 3) { oppN++; litPad(p, 220); render(); }
+      if (S && S.status === "playing" && S.turn !== me && phase === "ready" && Number.isInteger(p) && p >= 0 && p <= 3) { oppN++; flash(p, 250); render(); }
       return;
     }
     if (me !== 1) return;                                                // only the host applies rules
@@ -366,8 +412,6 @@ sess = EldaOnline.connect({
 });
 
 me = sess.role === "host" ? 1 : 2;
-document.documentElement.style.setProperty("--me",  me === 1 ? "var(--p1)" : "var(--p2)");
-document.documentElement.style.setProperty("--opp", me === 1 ? "var(--p2)" : "var(--p1)");
 if (me === 1) { S = newRound(1); startPlayback(); }    // the host starts; the guest waits for a snapshot
 render();
 
@@ -386,8 +430,8 @@ window.eldaDebugRandomInput = () => {
   if (phase === "watch" && myTurn()) finishPlayback();                   // skip the animation
   if (!canAct()) return;
   const mistake = Math.random() < 0.06 && S.seq.length > 0;
-  for (const p of S.seq) { press(mistake && Math.random() < 0.3 ? (p + 1) % 4 : p); if (!canAct()) return; }
-  if (canAct()) press(Math.floor(Math.random() * 4));
+  for (const p of S.seq) { input(mistake && Math.random() < 0.3 ? (p + 1) % 4 : p); if (!canAct()) return; }
+  if (canAct()) input(Math.floor(Math.random() * 4));
 };
 </script>
 </body>

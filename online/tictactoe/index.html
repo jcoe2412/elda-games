@@ -16,7 +16,7 @@
     --green:  #22bb33;
     --red:    #dd2200;
     --yellow: #ddaa00;
-    --dim:    #777;
+    --dim:    #555;
     --text:   #e0e0e0;
     /* TV (landscape): cell sized by height */
     --cell: min(15vh, 14vw);
@@ -47,7 +47,7 @@
   }
   #game {
     display: flex; flex-direction: column;
-    align-items: center; gap: 1rem;
+    align-items: center; gap: 1.2rem;
     padding: 0.5rem;
   }
   h1 { font-size: 3rem; font-weight: 900; letter-spacing: .06em; }
@@ -56,7 +56,7 @@
     text-align: center; letter-spacing: .02em;
     transition: color .25s;
   }
-  #status.your-turn { color: var(--me); }
+  #status.your-turn { color: var(--green); }
   #status.waiting   { color: var(--yellow); }
   #status.win       { color: var(--green); }
   #status.lose      { color: var(--red); }
@@ -99,6 +99,8 @@
     border-color: var(--green);
     box-shadow: 0 0 14px rgba(34,187,51,.35);
   }
+  .cell[data-mark="X"].win-cell { box-shadow: 0 0 14px rgba(68,136,255,.5); border-color: var(--x); }
+  .cell[data-mark="O"].win-cell { box-shadow: 0 0 14px rgba(255,102,51,.5); border-color: var(--o); }
 
   #meta {
     display: flex; align-items: center; gap: 1.2rem; flex-wrap: wrap; justify-content: center;
