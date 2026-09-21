@@ -126,7 +126,7 @@ const soundLose = () => { beep(200, .35, .25, 0, "sawtooth"); beep(160, .45, .25
 const soundDraw = () => { beep(350, .2, .3); beep(350, .2, .3, .28); };
 
 // ── RULES (pure) — English draughts on 8×8 ────────────────────────────────
-//  • dark squares only; 12 men each (MEN_ROWS = 3); host = player 1 = blue, starts at the bottom, moves "up" (row 7 → 0); guest = player 2 = orange
+//  • dark squares only; 8 men each (MEN_ROWS = 2; 12 with MEN_ROWS = 3); host = player 1 = blue, starts at the bottom, moves "up" (row 7 → 0); guest = player 2 = orange
 //  • men move one square diagonally forward; kings one square diagonally in any direction
 //  • capturing is COMPULSORY (any capture may be chosen) and a capturing piece must keep jumping while it can
 //  • a man reaching the far row is crowned, which ends the move; a player who cannot move loses
@@ -184,7 +184,8 @@ function applyMove(s, m) {
   else if (n.quiet >= 80) n.status = "draw";
   return n;
 }
-const MEN_ROWS = 3;      // rows of men per side: 3 = the standard game (12 each, ~15–30 min); 2 = a quick game (8 each, ~8–15 min)
+const MEN_ROWS = 2;      // rows of men per side: 2 = the QUICK game (8 each, ~8–15 min, the default: these games are played during a video call);
+                        // 3 = the standard game (12 each, ~15–30 min)
 function initialBoard() {
   const b = Array(64).fill(0);
   for (let r = 0; r < 8; r++) for (let c = 0; c < 8; c++) if ((r + c) % 2 === 1) { if (r < MEN_ROWS) b[r * 8 + c] = 2; else if (r > 7 - MEN_ROWS) b[r * 8 + c] = 1; }
@@ -206,7 +207,7 @@ function validSnapshot(s) {
 }
 
 let S = null, sess = null, me = 1;
-let cursor = 40;                 // my cursor (a square 0..63)
+let cursor = 0;                  // my cursor (a square 0..63); set by defaultCursor() once the role is known
 let sel = null;                  // the piece I have selected
 let armed = null;                // touch: the destination I tapped once (a second tap moves)
 let oppCur = null, oppSel = null;    // the opponent's live cursor / selection
@@ -297,7 +298,9 @@ function sendFocus(force) {
 }
 
 // ── State changes: BOTH sides funnel through adopt() ───────────────────────
-function defaultCursor() { return me === 1 ? 40 : 23; }
+// a square with one of my own pieces, in the front row: first dark square of the host's front row; the guest's is the same square in ITS view
+function hostDefaultCursor() { const r = 8 - MEN_ROWS; for (let c = 0; c < 8; c++) if ((r + c) % 2 === 1) return r * 8 + c; return 40; }
+function defaultCursor() { return me === 1 ? hostDefaultCursor() : 63 - hostDefaultCursor(); }
 function adopt(next) {
   const prev = S;
   S = next;
