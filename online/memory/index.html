@@ -38,6 +38,12 @@
     align-items: center; gap: 0.7rem;
     padding: 0.5rem;
   }
+  /* TV (landscape) only: leaves the top-right corner clear for the call thumbnail (DEVELOPING.md R36) —
+     already true today by being centered and compact; this just makes sure a future change can't grow
+     into it unnoticed. The phone never shows that thumbnail, so it keeps the full width. */
+  @media (min-aspect-ratio: 1/1) {
+    #game { max-width: 78vw; }
+  }
   h1 {
     font-size: 3rem; font-weight: 900; letter-spacing: .06em;
   }

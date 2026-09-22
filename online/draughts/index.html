@@ -27,6 +27,10 @@
     overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: manipulation;
   }
   #game { display: flex; flex-direction: column; align-items: center; gap: .6rem; padding: .4rem; }
+  /* TV (landscape) only: leaves the top-right corner clear for the call thumbnail (DEVELOPING.md R36) —
+     already true today by being centered and compact; this just makes sure a future change can't grow
+     into it unnoticed. The phone never shows that thumbnail, so it keeps the full width. */
+  @media (min-aspect-ratio: 1/1) { #game { max-width: 78vw; } }
   h1 { font-size: 2.4rem; font-weight: 900; letter-spacing: .06em; }
   #status { font-size: 2rem; font-weight: 700; min-height: 2.4rem; text-align: center; transition: color .25s; }
   #status.your-turn { color: var(--me); } #status.waiting { color: var(--yellow); } #status.must { color: var(--yellow); }
