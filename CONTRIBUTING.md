@@ -19,4 +19,4 @@ except your game's folder and its manifest entry.
 
 ## Single-player games
 
-Single-player games (`tictactoe/`, `simon/`, `connect4/`, `memory/`) follow [PARAMS.md](PARAMS.md); add the folder, a `thumbnail.svg` (4:3) and an entry in `games.json` with `label`, `labels`, `description` (en/fr/nl) and `thumbnail` — see the [README](README.md#thumbnail-and-description). EldaTV lists the game, with its thumbnail and description, without any code change.
+Single-player games (`tictactoe/`, `simon/`, `connect4/`, `memory/`, `breakout/`, `tetris/`) follow [PARAMS.md](PARAMS.md); add the folder, a `thumbnail.svg` (4:3) and an entry in `games.json` with `label`, `labels`, `description` (en/fr/nl) and `thumbnail` — see the [README](README.md#thumbnail-and-description). EldaTV lists the game, with its thumbnail and description, without any code change.

@@ -1,8 +1,8 @@
 # Game URL Parameters
 
-All four games (`simon/index.html`, `tictactoe/index.html`, `connect4/index.html`,
-and `memory/index.html`) accept the following query-string parameters.
-Parameters can be combined freely, e.g.:
+All six single-player games (`simon/index.html`, `tictactoe/index.html`, `connect4/index.html`,
+`memory/index.html`, `breakout/index.html` and `tetris/index.html`) accept the following
+query-string parameters. Parameters can be combined freely, e.g.:
 
     memory/index.html?lang=fr&voice=0&pairs=4
 
@@ -67,3 +67,24 @@ finish before continuing:
 
 When voice is **disabled**, all voice-related pauses are removed and the
 game transitions at full speed.
+
+---
+
+### Breakout-specific behaviour
+
+The only two of the six games with real-time movement rather than turn-based play
+(the others rely on the OS repeating a held key; these two need the paddle/piece to
+move continuously while a key is held, so both add a `keyup` listener alongside the
+usual single `keydown` one). Tuned deliberately gentle: a wide paddle, a constant
+ball speed with no per-level speed-up, three lives, one 5×10 screen of bricks.
+Voice speaks only at the meaningful transitions (ready, a life lost, win, game over,
+press-again) — never on every bounce or brick.
+
+### Tetris-specific behaviour
+
+Standard 7-piece set with a shuffled-bag randomiser (no long droughts of one piece),
+clockwise-only rotation with a small kick to the side if the naive rotation would
+collide, and a soft-drop (hold ↓ to fall faster) — deliberately no hard-drop, to keep
+the control set small. Gravity starts slow and speeds up gradually every 10 lines,
+capped well short of typical arcade speed. Voice speaks only at the start and at
+game over — not on every line clear, which would talk over the player's focus.

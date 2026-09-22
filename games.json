@@ -58,5 +58,35 @@
       "nl": "Draai telkens twee kaarten om en vind alle gelijke paren. Een goede training voor uw geheugen."
     },
     "thumbnail": "memory/thumbnail.svg"
+  },
+  {
+    "id": "breakout",
+    "label": "Breakout",
+    "labels": {
+      "en": "Breakout",
+      "fr": "Casse-briques",
+      "nl": "Breakout"
+    },
+    "description": {
+      "en": "Move the paddle to bounce the ball and clear every brick. A gentle pace, three lives.",
+      "fr": "Déplacez la raquette pour renvoyer la balle et détruire toutes les briques. Un rythme tranquille, trois vies.",
+      "nl": "Verplaats de peddel om de bal terug te kaatsen en alle stenen te breken. Een rustig tempo, drie levens."
+    },
+    "thumbnail": "breakout/thumbnail.svg"
+  },
+  {
+    "id": "tetris",
+    "label": "Tetris",
+    "labels": {
+      "en": "Tetris",
+      "fr": "Tetris",
+      "nl": "Tetris"
+    },
+    "description": {
+      "en": "Move and turn the falling pieces to complete full rows before the stack reaches the top.",
+      "fr": "Déplacez et tournez les pièces qui tombent pour compléter des lignes avant que la pile n'atteigne le sommet.",
+      "nl": "Verplaats en draai de vallende stukken om volledige rijen te maken voordat de stapel de bovenkant bereikt."
+    },
+    "thumbnail": "tetris/thumbnail.svg"
   }
 ]

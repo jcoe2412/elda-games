@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Breakout</title>
+<style>
+  :root {
+    --bg:     #0e0e1c;
+    --board:  #0d1f40;
+    --paddle: #4488ff;
+    --ball:   #f0f0f0;
+    --green:  #22bb33;
+    --red:    #dd2200;
+    --yellow: #ddaa00;
+    --dim:    #555;
+    --text:   #e0e0e0;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none;
+  }
+  #game {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 0.7rem;
+    padding: 0.5rem;
+  }
+  h1 {
+    font-size: 3rem; font-weight: 900; letter-spacing: .06em;
+    color: var(--text);
+  }
+  #status {
+    font-size: 2rem; font-weight: 700; min-height: 2.5rem;
+    text-align: center; letter-spacing: .02em;
+    transition: color .25s;
+  }
+  #status.idle    { color: var(--dim); }
+  #status.waiting { color: var(--yellow); }
+  #status.win     { color: var(--green); }
+  #status.lose    { color: var(--red); }
+
+  /* the play field itself — a fixed logical resolution, scaled to fit the TV via CSS */
+  #board {
+    width: min(88vw, 132vh);
+    aspect-ratio: 780 / 440;
+    border-radius: 18px;
+    background: var(--board);
+    box-shadow: 0 6px 28px rgba(0,0,0,.55);
+    display: block;
+  }
+
+  #meta {
+    display: flex; align-items: center; gap: 1.5rem;
+    color: var(--dim); font-size: 1.1rem;
+  }
+  #score  { color: var(--text); font-weight: 600; }
+  #lives  { letter-spacing: .15em; }
+</style>
+</head>
+<body>
+<div id="game">
+  <h1 id="title-el"></h1>
+  <div id="status" class="idle"></div>
+  <canvas id="board" width="780" height="440"></canvas>
+  <div id="meta">
+    <span id="score"></span>
+    <span id="lives"></span>
+    <span id="hint"></span>
+  </div>
+</div>
+
+<script>
+// ── i18n ──────────────────────────────────────────────────────────────────
+// ?lang=en (default) | fr | nl
+const LANG = (() => {
+  const p = new URLSearchParams(location.search);
+  const l = (p.get("lang") || "en").split(/[-_]/)[0].toLowerCase();
+  return ["fr", "nl"].includes(l) ? l : "en";
+})();
+
+const T = {
+  en: {
+    title:      "Breakout",
+    ready:      "Press Enter to launch the ball",
+    youWin:     "You win! 🎉",
+    youLose:    "Game over",
+    pressAgain: "Press any key to play again",
+    hint:       "← →  move   Enter  launch",
+    score:      (s) => `Score: ${s}`,
+  },
+  fr: {
+    title:      "Casse-briques",
+    ready:      "Appuyez sur Entrée pour lancer la balle",
+    youWin:     "Vous gagnez ! 🎉",
+    youLose:    "Partie terminée",
+    pressAgain: "Appuyez sur une touche pour rejouer",
+    hint:       "← →  déplacer   Entrée  lancer",
+    score:      (s) => `Score : ${s}`,
+  },
+  nl: {
+    title:      "Breakout",
+    ready:      "Druk op Enter om de bal te lanceren",
+    youWin:     "U wint! 🎉",
+    youLose:    "Spel afgelopen",
+    pressAgain: "Druk een toets in om opnieuw te spelen",
+    hint:       "← →  bewegen   Enter  lanceren",
+    score:      (s) => `Score: ${s}`,
+  },
+}[LANG];
+
+// ── Text-to-speech ────────────────────────────────────────────────────────
+// ?voice=0  disables TTS and all voice-related pauses; default is enabled
+const VOICE = new URLSearchParams(location.search).get("voice") !== "0";
+const SPEECH_LANG = { en: "en-US", fr: "fr-FR", nl: "nl-NL" }[LANG];
+
+// Verbose voice prompts — richer than the on-screen labels
+const TV = {
+  en: {
+    ready:      "Move the paddle, then press Enter to launch the ball.",
+    lifeLost:   "Ball lost! One life gone.",
+    youWin:     "Congratulations, you win!",
+    youLose:    "Game over. Better luck next time!",
+    pressAgain: "Press any key to play again.",
+  },
+  fr: {
+    ready:      "Déplacez la raquette, puis appuyez sur Entrée pour lancer la balle.",
+    lifeLost:   "Balle perdue ! Une vie en moins.",
+    youWin:     "Félicitations, vous gagnez !",
+    youLose:    "Partie terminée. Bonne chance la prochaine fois !",
+    pressAgain: "Appuyez sur une touche pour rejouer.",
+  },
+  nl: {
+    ready:      "Verplaats de peddel en druk dan op Enter om de bal te lanceren.",
+    lifeLost:   "Bal verloren! Eén leven minder.",
+    youWin:     "Gefeliciteerd, u wint!",
+    youLose:    "Spel afgelopen. Veel succes de volgende keer!",
+    pressAgain: "Druk een toets in om opnieuw te spelen.",
+  },
+}[LANG];
+
+let _voice = null, _ttsReady = false;
+
+function _pickVoice() {
+  const vv = window.speechSynthesis.getVoices();
+  _voice = vv.find(v => v.lang === SPEECH_LANG  && v.localService)
+        || vv.find(v => v.lang.startsWith(LANG) && v.localService)
+        || vv.find(v => v.lang === SPEECH_LANG)
+        || vv.find(v => v.lang.startsWith(LANG))
+        || null;
+}
+
+function ensureTTS() {
+  if (!VOICE || _ttsReady || !window.speechSynthesis) return;
+  _ttsReady = true;
+  const init = () => {
+    _pickVoice();
+    for (const text of Object.values(TV)) {
+      const u = new SpeechSynthesisUtterance(text);
+      if (_voice) u.voice = _voice;
+      u.lang = SPEECH_LANG; u.volume = 0; u.rate = 1.5;
+      window.speechSynthesis.speak(u);
+    }
+  };
+  if (window.speechSynthesis.getVoices().length) init();
+  else window.speechSynthesis.addEventListener('voiceschanged', init, { once: true });
+}
+
+function speak(text) {
+  if (!VOICE || !window.speechSynthesis) return Promise.resolve();
+  window.speechSynthesis.cancel();
+  return new Promise(resolve => {
+    const u = new SpeechSynthesisUtterance(text);
+    if (_voice) u.voice = _voice;
+    u.lang = SPEECH_LANG; u.rate = 1.05; u.volume = 1.0;
+    u.onend = resolve; u.onerror = resolve;
+    window.speechSynthesis.speak(u);
+  });
+}
+
+// ── Audio ──────────────────────────────────────────────────────────────────
+let audioCtx = null;
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function unlockAudio() { if (audioCtx?.state === "suspended") audioCtx.resume(); }
+
+function beep(freq, type, duration, volume = 0.35, startDelay = 0) {
+  try {
+    const ctx = getCtx(), osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = type; osc.frequency.value = freq;
+    const t = ctx.currentTime + startDelay;
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    osc.start(t); osc.stop(t + duration);
+  } catch (_) {}
+}
+
+function playBounce()        { beep(220, "triangle", 0.06, 0.35); }
+function playBrick(pitch)    { beep(320 + pitch * 90, "square", 0.08, 0.3); }
+function playLifeLost()      { beep(180, "sawtooth", 0.3, 0.3); }
+function playWin() {
+  [[523,0],[659,.14],[784,.28],[1046,.42]].forEach(([f,d]) => beep(f,"sine",.28,.4,d));
+}
+function playLose() {
+  beep(200, "sawtooth", .35, .25, 0);
+  beep(160, "sawtooth", .45, .25, .35);
+}
+
+// ── Game constants — tuned gentle: wide paddle, modest constant ball speed, no ramp ──
+const W = 780, H = 440;
+const ROWS = 5, COLS = 10;
+const BRICK_TOP = 40, BRICK_SIDE = 14, BRICK_GAP = 6;
+const BRICK_W = (W - 2 * BRICK_SIDE - (COLS - 1) * BRICK_GAP) / COLS;
+const BRICK_H = 22;
+const BRICK_COLORS = ["#dd4444", "#ddaa00", "#22bb33", "#4488ff", "#aa66ee"]; // top → bottom
+const PADDLE_W = 120, PADDLE_H = 16, PADDLE_Y = H - 30;
+const PADDLE_SPEED = 560;   // px/s — comfortably faster than the ball, forgiving
+const BALL_R = 8;
+const BALL_SPEED = 300;     // px/s — constant, no per-level speed-up (gentle pacing)
+const MAX_BOUNCE_RAD = 60 * Math.PI / 180;
+const START_LIVES = 3;
+
+// ── State ──────────────────────────────────────────────────────────────────
+let bricks = [];       // [{x,y,w,h,color,points,alive}]
+let paddleX = (W - PADDLE_W) / 2;
+let ball = { x: 0, y: 0, vx: 0, vy: 0, launched: false };
+// Two independent sources — keyboard and gamepad — OR'd together in update(), so the gamepad
+// polling loop (which runs every frame regardless of whether a pad is connected) can never
+// clobber a keyboard hold, and vice versa.
+let keyHeld = { left: false, right: false };
+let padHeld = { left: false, right: false };
+let score = 0, lives = START_LIVES;
+let phase = "idle";     // idle | playing | gameover
+let lastT = null;
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const statusEl = document.getElementById("status");
+const canvas   = document.getElementById("board");
+const ctx      = canvas.getContext("2d");
+const scoreEl  = document.getElementById("score");
+const livesEl  = document.getElementById("lives");
+
+document.getElementById("title-el").textContent = T.title;
+document.getElementById("hint").textContent     = T.hint;
+
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className   = cls;
+}
+function updateMeta() {
+  scoreEl.textContent = T.score(score);
+  livesEl.textContent = "♥".repeat(Math.max(0, lives)) + "♡".repeat(START_LIVES - Math.max(0, lives));
+}
+
+// ── Setup ──────────────────────────────────────────────────────────────────
+function initBricks() {
+  bricks = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      bricks.push({
+        x: BRICK_SIDE + c * (BRICK_W + BRICK_GAP),
+        y: BRICK_TOP + r * (BRICK_H + BRICK_GAP),
+        w: BRICK_W, h: BRICK_H,
+        color: BRICK_COLORS[r], points: ROWS - r,
+        alive: true,
+      });
+    }
+  }
+}
+
+function restBallOnPaddle() {
+  ball.launched = false;
+  ball.x = paddleX + PADDLE_W / 2;
+  ball.y = PADDLE_Y - BALL_R - 1;
+  ball.vx = 0; ball.vy = 0;
+}
+
+function launchBall() {
+  if (phase !== "idle" || ball.launched) return;
+  ball.launched = true;
+  phase = "playing";
+  const angle = (Math.random() * 0.4 - 0.2); // a slight random starting angle
+  ball.vx = BALL_SPEED * Math.sin(angle);
+  ball.vy = -BALL_SPEED * Math.cos(angle);
+}
+
+function newGame() {
+  ensureTTS();
+  score = 0; lives = START_LIVES;
+  initBricks();
+  paddleX = (W - PADDLE_W) / 2;
+  restBallOnPaddle();
+  phase = "idle";
+  updateMeta();
+  setStatus(T.ready, "idle");
+  speak(TV.ready);
+}
+
+// ── Physics / update ─────────────────────────────────────────────────────
+function roundRect(x, y, w, h, r) {
+  if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function update(dt) {
+  // Paddle — the one place this game needs true continuous (held-key) movement,
+  // unlike every other single-player game here, because it's tracking a moving ball.
+  if (keyHeld.left  || padHeld.left)  paddleX -= PADDLE_SPEED * dt;
+  if (keyHeld.right || padHeld.right) paddleX += PADDLE_SPEED * dt;
+  paddleX = Math.max(0, Math.min(W - PADDLE_W, paddleX));
+
+  if (!ball.launched) { restBallOnPaddle(); return; }
+  if (phase !== "playing") return;
+
+  ball.x += ball.vx * dt;
+  ball.y += ball.vy * dt;
+
+  if (ball.x - BALL_R < 0)      { ball.x = BALL_R;     ball.vx = -ball.vx; playBounce(); }
+  if (ball.x + BALL_R > W)      { ball.x = W - BALL_R; ball.vx = -ball.vx; playBounce(); }
+  if (ball.y - BALL_R < 0)      { ball.y = BALL_R;     ball.vy = -ball.vy; playBounce(); }
+
+  // Paddle bounce (only while heading down)
+  if (ball.vy > 0 && ball.y + BALL_R >= PADDLE_Y && ball.y + BALL_R <= PADDLE_Y + PADDLE_H
+      && ball.x >= paddleX - BALL_R && ball.x <= paddleX + PADDLE_W + BALL_R) {
+    ball.y = PADDLE_Y - BALL_R;
+    let hitPos = (ball.x - (paddleX + PADDLE_W / 2)) / (PADDLE_W / 2);
+    hitPos = Math.max(-1, Math.min(1, hitPos));
+    const angle = hitPos * MAX_BOUNCE_RAD;
+    ball.vx = BALL_SPEED * Math.sin(angle);
+    ball.vy = -BALL_SPEED * Math.cos(angle);
+    playBounce();
+  }
+
+  // Bricks — first one the ball overlaps this frame
+  for (const b of bricks) {
+    if (!b.alive) continue;
+    if (ball.x + BALL_R < b.x || ball.x - BALL_R > b.x + b.w
+        || ball.y + BALL_R < b.y || ball.y - BALL_R > b.y + b.h) continue;
+    const dx = Math.min(ball.x + BALL_R - b.x, b.x + b.w - (ball.x - BALL_R));
+    const dy = Math.min(ball.y + BALL_R - b.y, b.y + b.h - (ball.y - BALL_R));
+    if (dx < dy) ball.vx = -ball.vx; else ball.vy = -ball.vy;
+    b.alive = false;
+    score += b.points;
+    updateMeta();
+    playBrick(b.points);
+    if (bricks.every(x => !x.alive)) { endGame(true); return; }
+    break;
+  }
+
+  // Ball fell below the paddle — a life is lost, but the game goes right on (the paddle
+  // stays movable throughout; only the ball's flight pauses until the next launch).
+  if (ball.y - BALL_R > H) {
+    lives--;
+    updateMeta();
+    if (lives <= 0) { endGame(false); return; }
+    playLifeLost();
+    phase = "idle";
+    restBallOnPaddle();
+    setStatus(T.ready, "waiting");
+    speak(TV.lifeLost);
+  }
+}
+
+function endGame(won) {
+  phase = "gameover";
+  restBallOnPaddle();
+  if (won) { setStatus(T.youWin, "win"); speak(TV.youWin); playWin(); }
+  else     { setStatus(T.youLose, "lose"); speak(TV.youLose); playLose(); }
+  setTimeout(() => { setStatus(T.pressAgain, "idle"); speak(TV.pressAgain); }, 2000);
+}
+
+// ── Render ─────────────────────────────────────────────────────────────────
+function render() {
+  ctx.clearRect(0, 0, W, H);
+
+  for (const b of bricks) {
+    if (!b.alive) continue;
+    ctx.fillStyle = b.color;
+    roundRect(b.x, b.y, b.w, b.h, 4);
+    ctx.fill();
+  }
+
+  ctx.fillStyle = "#4488ff";
+  roundRect(paddleX, PADDLE_Y, PADDLE_W, PADDLE_H, 6);
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, BALL_R, 0, Math.PI * 2);
+  ctx.fillStyle = "#f0f0f0";
+  ctx.shadowColor = "rgba(255,255,255,.6)";
+  ctx.shadowBlur = 8;
+  ctx.fill();
+  ctx.shadowBlur = 0;
+}
+
+function frame(t) {
+  if (lastT === null) lastT = t;
+  const dt = Math.min((t - lastT) / 1000, 0.033); // clamp so a backgrounded tab can't jump
+  lastT = t;
+  update(dt);
+  render();
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ── Keyboard ───────────────────────────────────────────────────────────────
+document.addEventListener("keydown", e => {
+  unlockAudio();
+  ensureTTS();
+  if (phase === "gameover") {
+    if (e.key === "Escape") { window.parent.postMessage({ type: "elda_back" }, "*"); return; }
+    newGame(); return;
+  }
+  switch (e.key) {
+    case "ArrowLeft":  e.preventDefault(); keyHeld.left  = true; break;
+    case "ArrowRight": e.preventDefault(); keyHeld.right = true; break;
+    case "ArrowUp":
+    case "ArrowDown":  e.preventDefault(); break; // no-op (avoids page scroll)
+    case "Enter":
+    case " ":          launchBall(); break;
+    case "Escape":     window.parent.postMessage({ type: "elda_back" }, "*"); break;
+  }
+});
+document.addEventListener("keyup", e => {
+  if (e.key === "ArrowLeft")  keyHeld.left  = false;
+  if (e.key === "ArrowRight") keyHeld.right = false;
+});
+// A held key auto-repeats keydown but not keyup in most browsers, so this is reliable;
+// losing focus must not leave the paddle stuck moving.
+window.addEventListener("blur", () => { keyHeld.left = false; keyHeld.right = false; });
+
+// ── Gamepad ────────────────────────────────────────────────────────────────
+let _gpPrev = [];
+function pollGamepad() {
+  const gp = navigator.getGamepads?.()[0];
+  if (gp) {
+    unlockAudio();
+    const hit = i => gp.buttons[i]?.pressed && !_gpPrev[i];
+    if (phase === "gameover") {
+      if (hit(9) || hit(1)) window.parent.postMessage({ type: "elda_back" }, "*");
+      else if ([0,1,2,3,12,13,14,15].some(hit)) newGame();
+    } else {
+      // Continuous, like the keyboard's held state — read the current level every frame.
+      padHeld.left  = gp.buttons[14]?.pressed || gp.axes[0] < -.35;
+      padHeld.right = gp.buttons[15]?.pressed || gp.axes[0] >  .35;
+      if (hit(0)) launchBall();
+      if (hit(1) || hit(9)) window.parent.postMessage({ type: "elda_back" }, "*");
+    }
+    _gpPrev = gp.buttons.map(b => b.pressed);
+  } else {
+    padHeld.left = false; padHeld.right = false;
+  }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
+// ── Start ──────────────────────────────────────────────────────────────────
+newGame();
+</script>
+</body>
+</html>

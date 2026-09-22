@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Tetris</title>
+<style>
+  :root {
+    --bg:     #0e0e1c;
+    --board:  #0d1f40;
+    --hole:   #080818;
+    --green:  #22bb33;
+    --red:    #dd2200;
+    --yellow: #ddaa00;
+    --dim:    #555;
+    --text:   #e0e0e0;
+    /* board is 10 × 20 — tall and narrow, so both height and width matter; the vh side is
+       the binding one on any normal 16:9 TV, so it's tuned to leave headroom for the title/
+       status/hint text around it, which stay a fixed rem size regardless of viewport height */
+    --cell: min(3.2vh, 4.2vw);
+    --gap:  3px;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    width: 100%; height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Segoe UI', Arial, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden; user-select: none;
+  }
+  #game {
+    display: flex; flex-direction: column;
+    align-items: center; gap: 0.6rem;
+    padding: 0.5rem;
+  }
+  h1 {
+    font-size: 2.6rem; font-weight: 900; letter-spacing: .06em;
+  }
+  #status {
+    font-size: 1.8rem; font-weight: 700; min-height: 2.3rem;
+    text-align: center; letter-spacing: .02em;
+    transition: color .25s;
+  }
+  #status.idle { color: var(--dim); }
+  #status.lose { color: var(--red); }
+
+  #play-area { display: flex; align-items: flex-start; gap: 1.4rem; }
+
+  #board {
+    display: grid;
+    grid-template-columns: repeat(10, var(--cell));
+    grid-template-rows:    repeat(20, var(--cell));
+    gap: var(--gap);
+    background: var(--board);
+    padding: var(--gap);
+    border-radius: 14px;
+    box-shadow: 0 6px 28px rgba(0,0,0,.55);
+  }
+  .cell { width: var(--cell); height: var(--cell); border-radius: 3px; background: var(--hole); }
+  .cell.ghost { background: rgba(255,255,255,.12); }
+
+  #sidebar {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 1.1rem; padding-top: .3rem; min-width: calc(var(--cell) * 4 + 1.2rem);
+  }
+  #next-label { color: var(--dim); font-size: 1rem; }
+  #next-piece {
+    display: grid;
+    grid-template-columns: repeat(4, var(--cell));
+    grid-template-rows:    repeat(4, var(--cell));
+    gap: var(--gap);
+    background: var(--board);
+    padding: var(--gap);
+    border-radius: 10px;
+  }
+  #next-piece .cell { background: var(--hole); }
+
+  #sidebar-stats { display: flex; flex-direction: column; align-items: center; gap: .4rem; }
+  #score { font-size: 1.3rem; font-weight: 700; color: var(--text); }
+  #level { font-size: 1rem; color: var(--dim); }
+
+  #hint { color: var(--dim); font-size: 1rem; }
+</style>
+</head>
+<body>
+<div id="game">
+  <h1 id="title-el"></h1>
+  <div id="status" class="idle"></div>
+  <div id="play-area">
+    <div id="board"></div>
+    <div id="sidebar">
+      <div id="next-label"></div>
+      <div id="next-piece"></div>
+      <div id="sidebar-stats">
+        <div id="score"></div>
+        <div id="level"></div>
+      </div>
+    </div>
+  </div>
+  <div id="hint"></div>
+</div>
+
+<script>
+// ── i18n ──────────────────────────────────────────────────────────────────
+// ?lang=en (default) | fr | nl
+const LANG = (() => {
+  const p = new URLSearchParams(location.search);
+  const l = (p.get("lang") || "en").split(/[-_]/)[0].toLowerCase();
+  return ["fr", "nl"].includes(l) ? l : "en";
+})();
+
+const T = {
+  en: {
+    title:      "Tetris",
+    next:       "Next",
+    youLose:    "Game over",
+    pressAgain: "Press any key to play again",
+    hint:       "← →  move   ↑  rotate   ↓  soft drop",
+    score:      (s) => `Score: ${s}`,
+    level:      (l) => `Level ${l}`,
+  },
+  fr: {
+    title:      "Tetris",
+    next:       "Suivant",
+    youLose:    "Partie terminée",
+    pressAgain: "Appuyez sur une touche pour rejouer",
+    hint:       "← →  déplacer   ↑  tourner   ↓  descente rapide",
+    score:      (s) => `Score : ${s}`,
+    level:      (l) => `Niveau ${l}`,
+  },
+  nl: {
+    title:      "Tetris",
+    next:       "Volgende",
+    youLose:    "Spel afgelopen",
+    pressAgain: "Druk een toets in om opnieuw te spelen",
+    hint:       "← →  bewegen   ↑  draaien   ↓  snel laten zakken",
+    score:      (s) => `Score: ${s}`,
+    level:      (l) => `Niveau ${l}`,
+  },
+}[LANG];
+
+// ── Text-to-speech ────────────────────────────────────────────────────────
+// ?voice=0  disables TTS and all voice-related pauses; default is enabled
+const VOICE = new URLSearchParams(location.search).get("voice") !== "0";
+const SPEECH_LANG = { en: "en-US", fr: "fr-FR", nl: "nl-NL" }[LANG];
+
+// Verbose voice prompts — richer than the on-screen labels. No per-line-clear or per-level
+// speech: this game moves fast, and narrating every event would talk over the player's focus.
+const TV = {
+  en: {
+    ready:      "Move the pieces to complete full rows. Here we go!",
+    youLose:    "Game over. Better luck next time!",
+    pressAgain: "Press any key to play again.",
+  },
+  fr: {
+    ready:      "Déplacez les pièces pour compléter des lignes entières. C'est parti !",
+    youLose:    "Partie terminée. Bonne chance la prochaine fois !",
+    pressAgain: "Appuyez sur une touche pour rejouer.",
+  },
+  nl: {
+    ready:      "Verplaats de stukken om volledige rijen te maken. Daar gaan we!",
+    youLose:    "Spel afgelopen. Veel succes de volgende keer!",
+    pressAgain: "Druk een toets in om opnieuw te spelen.",
+  },
+}[LANG];
+
+let _voice = null, _ttsReady = false;
+
+function _pickVoice() {
+  const vv = window.speechSynthesis.getVoices();
+  _voice = vv.find(v => v.lang === SPEECH_LANG  && v.localService)
+        || vv.find(v => v.lang.startsWith(LANG) && v.localService)
+        || vv.find(v => v.lang === SPEECH_LANG)
+        || vv.find(v => v.lang.startsWith(LANG))
+        || null;
+}
+
+function ensureTTS() {
+  if (!VOICE || _ttsReady || !window.speechSynthesis) return;
+  _ttsReady = true;
+  const init = () => {
+    _pickVoice();
+    for (const text of Object.values(TV)) {
+      const u = new SpeechSynthesisUtterance(text);
+      if (_voice) u.voice = _voice;
+      u.lang = SPEECH_LANG; u.volume = 0; u.rate = 1.5;
+      window.speechSynthesis.speak(u);
+    }
+  };
+  if (window.speechSynthesis.getVoices().length) init();
+  else window.speechSynthesis.addEventListener('voiceschanged', init, { once: true });
+}
+
+function speak(text) {
+  if (!VOICE || !window.speechSynthesis) return Promise.resolve();
+  window.speechSynthesis.cancel();
+  return new Promise(resolve => {
+    const u = new SpeechSynthesisUtterance(text);
+    if (_voice) u.voice = _voice;
+    u.lang = SPEECH_LANG; u.rate = 1.05; u.volume = 1.0;
+    u.onend = resolve; u.onerror = resolve;
+    window.speechSynthesis.speak(u);
+  });
+}
+
+// ── Audio ──────────────────────────────────────────────────────────────────
+let audioCtx = null;
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+function unlockAudio() { if (audioCtx?.state === "suspended") audioCtx.resume(); }
+
+function beep(freq, type, duration, volume = 0.35, startDelay = 0) {
+  try {
+    const ctx = getCtx(), osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = type; osc.frequency.value = freq;
+    const t = ctx.currentTime + startDelay;
+    gain.gain.setValueAtTime(volume, t);
+    gain.gain.exponentialRampToValueAtTime(0.001, t + duration);
+    osc.start(t); osc.stop(t + duration);
+  } catch (_) {}
+}
+
+function playMove()   { beep(180, "square", 0.04, 0.18); }
+function playRotate() { beep(260, "triangle", 0.06, 0.25); }
+function playLock()   { beep(140, "triangle", 0.08, 0.3); }
+function playLine(n)  { for (let i = 0; i < n; i++) beep(500 + i * 120, "sine", .18, .35, i * .09); }
+function playLose() {
+  beep(200, "sawtooth", .35, .25, 0);
+  beep(160, "sawtooth", .45, .25, .35);
+}
+
+// ── Pieces ─────────────────────────────────────────────────────────────────
+// Each defined by its cells in an N×N bounding box (spawn orientation); rotateCW below
+// derives the other orientations, so only one shape per piece needs to be written out.
+const PIECES = {
+  I: { n: 4, cells: [[1,0],[1,1],[1,2],[1,3]], color: "#33bbdd" },
+  O: { n: 2, cells: [[0,0],[0,1],[1,0],[1,1]], color: "#ddaa00" },
+  T: { n: 3, cells: [[0,1],[1,0],[1,1],[1,2]], color: "#aa66ee" },
+  S: { n: 3, cells: [[0,1],[0,2],[1,0],[1,1]], color: "#22bb33" },
+  Z: { n: 3, cells: [[0,0],[0,1],[1,1],[1,2]], color: "#dd2200" },
+  J: { n: 3, cells: [[0,0],[1,0],[1,1],[1,2]], color: "#4488ff" },
+  L: { n: 3, cells: [[0,2],[1,0],[1,1],[1,2]], color: "#ff8833" },
+};
+const PIECE_TYPES = Object.keys(PIECES);
+
+function rotateCW(cells, n) {
+  return cells.map(([r, c]) => [c, n - 1 - r]);
+}
+
+// A shuffled bag of all 7 pieces, refilled when empty — avoids long droughts of one piece.
+let _bag = [];
+function nextFromBag() {
+  if (_bag.length === 0) {
+    _bag = [...PIECE_TYPES];
+    for (let i = _bag.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [_bag[i], _bag[j]] = [_bag[j], _bag[i]];
+    }
+  }
+  return _bag.pop();
+}
+
+// ── Board / game constants ──────────────────────────────────────────────────
+const ROWS = 20, COLS = 10;
+const START_INTERVAL_MS = 800, MIN_INTERVAL_MS = 350, INTERVAL_STEP_MS = 40; // gentle: capped, never frantic
+const SOFT_DROP_MS = 60;
+const LINES_PER_LEVEL = 10;
+
+// ── State ──────────────────────────────────────────────────────────────────
+let board = [];             // ROWS × COLS, each cell a color string or null
+let cur = null;             // { type, n, cells:[[r,c]...], row, col, color }
+let nextType = null;
+let score = 0, lines = 0, level = 1;
+let dropAccum = 0, lastT = null;
+let softDropping = false;
+let phase = "idle";         // idle | playing | gameover
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const statusEl = document.getElementById("status");
+const boardEl  = document.getElementById("board");
+const nextEl   = document.getElementById("next-piece");
+const scoreEl  = document.getElementById("score");
+const levelEl  = document.getElementById("level");
+
+document.getElementById("title-el").textContent  = T.title;
+document.getElementById("next-label").textContent = T.next;
+document.getElementById("hint").textContent      = T.hint;
+
+function setStatus(text, cls) { statusEl.textContent = text; statusEl.className = cls; }
+function updateStats() { scoreEl.textContent = T.score(score); levelEl.textContent = T.level(level); }
+
+// ── Board / piece helpers ───────────────────────────────────────────────────
+function emptyBoard() { return Array.from({ length: ROWS }, () => Array(COLS).fill(null)); }
+
+function spawnPiece(type) {
+  const def = PIECES[type];
+  return {
+    type, n: def.n, cells: def.cells.map(c => [...c]), color: def.color,
+    row: type === "I" ? -1 : 0,
+    col: Math.floor((COLS - def.n) / 2),
+  };
+}
+
+// True if `piece` at its current row/col would overlap the board edges or a locked cell.
+// Cells above the visible board (row < 0) are always allowed — the piece just hasn't
+// fully entered yet.
+function collides(piece, dRow = 0, dCol = 0) {
+  for (const [lr, lc] of piece.cells) {
+    const r = piece.row + dRow + lr, c = piece.col + dCol + lc;
+    if (c < 0 || c >= COLS || r >= ROWS) return true;
+    if (r >= 0 && board[r][c]) return true;
+  }
+  return false;
+}
+
+function tryMove(dRow, dCol) {
+  if (collides(cur, dRow, dCol)) return false;
+  cur.row += dRow; cur.col += dCol;
+  return true;
+}
+
+function tryRotate() {
+  const rotated = rotateCW(cur.cells, cur.n);
+  const test = { ...cur, cells: rotated };
+  // A small, simple kick set (no full SRS) — nudge sideways if the naive rotation collides.
+  for (const kick of [0, -1, 1, -2, 2]) {
+    if (!collides({ ...test, col: test.col + kick }, 0, 0)) {
+      cur.cells = rotated; cur.col += kick;
+      return true;
+    }
+  }
+  return false;
+}
+
+// ── Rendering ──────────────────────────────────────────────────────────────
+function render() {
+  boardEl.innerHTML = "";
+  const overlay = board.map(row => row.slice());
+  if (cur) for (const [lr, lc] of cur.cells) {
+    const r = cur.row + lr, c = cur.col + lc;
+    if (r >= 0 && r < ROWS && c >= 0 && c < COLS) overlay[r][c] = cur.color;
+  }
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      if (overlay[r][c]) cell.style.background = overlay[r][c];
+      boardEl.appendChild(cell);
+    }
+  }
+
+  nextEl.innerHTML = "";
+  const def = nextType ? PIECES[nextType] : null;
+  const nextGrid = Array.from({ length: 4 }, () => Array(4).fill(null));
+  if (def) for (const [r, c] of def.cells) nextGrid[r][c] = def.color;
+  for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    if (nextGrid[r][c]) cell.style.background = nextGrid[r][c];
+    nextEl.appendChild(cell);
+  }
+}
+
+// ── Game flow ──────────────────────────────────────────────────────────────
+function levelInterval() { return Math.max(MIN_INTERVAL_MS, START_INTERVAL_MS - (level - 1) * INTERVAL_STEP_MS); }
+
+function spawnNext() {
+  cur = spawnPiece(nextType ?? nextFromBag());
+  nextType = nextFromBag();
+  if (collides(cur)) { endGame(); return; }
+  render();
+}
+
+function lockAndClear() {
+  for (const [lr, lc] of cur.cells) {
+    const r = cur.row + lr, c = cur.col + lc;
+    if (r >= 0) board[r][c] = cur.color;
+  }
+  playLock();
+
+  const clearedRows = [];
+  for (let r = 0; r < ROWS; r++) if (board[r].every(v => v)) clearedRows.push(r);
+  if (clearedRows.length) {
+    board = board.filter((_, r) => !clearedRows.includes(r));
+    while (board.length < ROWS) board.unshift(Array(COLS).fill(null));
+    lines += clearedRows.length;
+    score += [0, 100, 300, 500, 800][clearedRows.length] || 800;
+    level = Math.floor(lines / LINES_PER_LEVEL) + 1;
+    updateStats();
+    playLine(clearedRows.length);
+  }
+
+  cur = null;
+  spawnNext();
+}
+
+function dropOneRow() {
+  if (tryMove(1, 0)) { render(); return; }
+  lockAndClear();
+}
+
+function newGame() {
+  ensureTTS();
+  board = emptyBoard();
+  score = 0; lines = 0; level = 1;
+  dropAccum = 0; lastT = null;
+  softDropping = false;
+  _bag = [];
+  nextType = nextFromBag();
+  phase = "playing";
+  updateStats();
+  setStatus("", "idle");
+  spawnNext();
+  speak(TV.ready);
+}
+
+function endGame() {
+  phase = "gameover";
+  cur = null;
+  render();
+  setStatus(T.youLose, "lose");
+  speak(TV.youLose);
+  playLose();
+  setTimeout(() => { setStatus(T.pressAgain, "idle"); speak(TV.pressAgain); }, 2000);
+}
+
+// ── Main loop — gravity, gated to the level/soft-drop interval ─────────────
+function frame(t) {
+  if (lastT === null) lastT = t;
+  const dt = Math.min(t - lastT, 33);
+  lastT = t;
+  if (phase === "playing") {
+    dropAccum += dt;
+    const interval = softDropping ? SOFT_DROP_MS : levelInterval();
+    if (dropAccum >= interval) { dropAccum = 0; dropOneRow(); }
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ── Keyboard ───────────────────────────────────────────────────────────────
+document.addEventListener("keydown", e => {
+  unlockAudio();
+  ensureTTS();
+  if (phase === "gameover") {
+    if (e.key === "Escape") { window.parent.postMessage({ type: "elda_back" }, "*"); return; }
+    newGame(); return;
+  }
+  if (phase !== "playing") return;
+  switch (e.key) {
+    case "ArrowLeft":  e.preventDefault(); if (tryMove(0, -1)) { playMove(); render(); } break;
+    case "ArrowRight": e.preventDefault(); if (tryMove(0,  1)) { playMove(); render(); } break;
+    case "ArrowUp":    e.preventDefault(); if (tryRotate())    { playRotate(); render(); } break;
+    case "ArrowDown":  e.preventDefault(); softDropping = true; break;
+    case "Escape":     window.parent.postMessage({ type: "elda_back" }, "*"); break;
+  }
+});
+document.addEventListener("keyup", e => {
+  if (e.key === "ArrowDown") softDropping = false;
+});
+window.addEventListener("blur", () => { softDropping = false; });
+
+// ── Gamepad ────────────────────────────────────────────────────────────────
+let _gpPrev = [];
+function pollGamepad() {
+  const gp = navigator.getGamepads?.()[0];
+  if (gp) {
+    unlockAudio();
+    const hit = i => gp.buttons[i]?.pressed && !_gpPrev[i];
+    if (phase === "gameover") {
+      if (hit(9) || hit(1)) window.parent.postMessage({ type: "elda_back" }, "*");
+      else if ([0,1,2,3,12,13,14,15].some(hit)) newGame();
+    } else if (phase === "playing") {
+      if (hit(14) || (gp.axes[0] < -.5 && !_gpPrev.axL)) { if (tryMove(0, -1)) { playMove(); render(); } }
+      if (hit(15) || (gp.axes[0] >  .5 && !_gpPrev.axR)) { if (tryMove(0,  1)) { playMove(); render(); } }
+      if (hit(12) || hit(0)) { if (tryRotate()) { playRotate(); render(); } }
+      softDropping = gp.buttons[13]?.pressed || gp.axes[1] > .5;
+      if (hit(1) || hit(9)) window.parent.postMessage({ type: "elda_back" }, "*");
+    }
+    _gpPrev = gp.buttons.map(b => b.pressed);
+    _gpPrev.axL = gp.axes[0] < -.5;
+    _gpPrev.axR = gp.axes[0] >  .5;
+  } else {
+    softDropping = false;
+  }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
+// ── Start ──────────────────────────────────────────────────────────────────
+// newGame() -> spawnNext() renders once board/pieces are actually populated; rendering any
+// earlier would index into the still-empty board and throw.
+newGame();
+</script>
+</body>
+</html>

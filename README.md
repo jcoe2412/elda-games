@@ -64,4 +64,6 @@ EldaRemote to add: see [`online/README.md`](online/README.md).
 - `simon/`
 - `connect4/`
 - `memory/`
+- `breakout/`
+- `tetris/`
 - `online/connect4/` (2-player, see above)

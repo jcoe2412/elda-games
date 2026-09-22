@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300" role="img" aria-label="Tetris">
+<defs><radialGradient id="bg" cx="50%" cy="45%" r="75%"><stop offset="0" stop-color="#1b1b3a"/><stop offset="1" stop-color="#0e0e1c"/></radialGradient><filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+<rect width="400" height="300" fill="url(#bg)"/>
+<rect x="108" y="16" width="184" height="268" rx="14" fill="#0d1f40"/>
+<!-- falling T piece, glowing -->
+<g filter="url(#glow)">
+<rect x="160" y="40" width="24" height="24" rx="3" fill="#aa66ee"/>
+<rect x="136" y="64" width="24" height="24" rx="3" fill="#aa66ee"/>
+<rect x="160" y="64" width="24" height="24" rx="3" fill="#aa66ee"/>
+<rect x="184" y="64" width="24" height="24" rx="3" fill="#aa66ee"/>
+</g>
+<!-- settled stack near the bottom -->
+<rect x="112" y="200" width="24" height="24" rx="3" fill="#33bbdd"/><rect x="136" y="200" width="24" height="24" rx="3" fill="#33bbdd"/><rect x="160" y="200" width="24" height="24" rx="3" fill="#dd2200"/><rect x="232" y="200" width="24" height="24" rx="3" fill="#22bb33"/><rect x="256" y="200" width="24" height="24" rx="3" fill="#22bb33"/>
+<rect x="112" y="224" width="24" height="24" rx="3" fill="#ff8833"/><rect x="136" y="224" width="24" height="24" rx="3" fill="#4488ff"/><rect x="160" y="224" width="24" height="24" rx="3" fill="#4488ff"/><rect x="184" y="224" width="24" height="24" rx="3" fill="#ddaa00"/><rect x="208" y="224" width="24" height="24" rx="3" fill="#ddaa00"/><rect x="256" y="224" width="24" height="24" rx="3" fill="#dd2200"/>
+<rect x="112" y="248" width="24" height="24" rx="3" fill="#22bb33"/><rect x="136" y="248" width="24" height="24" rx="3" fill="#33bbdd"/><rect x="160" y="248" width="24" height="24" rx="3" fill="#33bbdd"/><rect x="184" y="248" width="24" height="24" rx="3" fill="#33bbdd"/><rect x="208" y="248" width="24" height="24" rx="3" fill="#33bbdd"/><rect x="232" y="248" width="24" height="24" rx="3" fill="#ff8833"/><rect x="256" y="248" width="24" height="24" rx="3" fill="#ff8833"/>
+</svg>
