@@ -171,6 +171,11 @@ Two very different screens must work from the same file:
   switch layouts with `@media (max-aspect-ratio: 1/1)` for portrait.
 * **R30** — Dark background (`#0e0e1c`), light text. Keep board lines and cell borders clearly visible (a border that
   looks fine on a monitor can be invisible on a TV).
+* **R36** — Online games only ever run during a video call, and the TV can show a small window of the caller's picture
+  on top of the game (the person's own choice, in `config.json` — not something a game does or knows about). Keep the
+  **top-right, ~20% of the screen** visually light — no controls, no important text there — so a game still reads fine
+  with that corner covered. This is a visual convention only, checked by eye, not enforced by `validate.js` (which only
+  reads the HTML source, not the rendered layout) or by any `postMessage`/manifest field.
 
 **A game that exists in both a single-player and a two-player form must look and feel the same in both.** The
 single-player game (`<id>/index.html` at the repository root) is the reference: reuse its layout, cards/pieces, colours,

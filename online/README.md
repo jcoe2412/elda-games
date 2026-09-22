@@ -103,6 +103,9 @@ s.leave();                 // ask the parent to end the session (Escape / quit)
 * **No text-to-speech.** Online games are played during a video call, so they
   must not speak (sound effects are fine). Text-to-speech is for the local,
   single-player games only.
+* **Leave the top-right corner light.** The TV can show a small window of the caller's picture there, on top of the
+  game (a device setting, not something the game controls or is told about) — see `DEVELOPING.md` R36. Purely visual,
+  not a protocol change: no new `postMessage` kind, no manifest field.
 * **Show the opponent's choice live.** Send a lightweight `send("focus", …)`
   message whenever the player moves their cursor and draw the opponent's, so
   each side sees the other's selection *before* it is validated (Connect 4
