@@ -396,12 +396,13 @@ async function showSequence() {
   }
 
   await sleep(400);
+  // The player may press at once — "your turn" is said meanwhile, not waited for (it took ~2 s on the TV before
+  // a press counted); a press cuts it short (see input). Same 0.4 s as the online duel.
   setStatus(T.yourTurn, "your-turn");
-  await speak(TV.yourTurn);
-  await voicePause(200);
   phase       = "player";
   playerInput = [];
   renderProgress();
+  speak(TV.yourTurn);
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -413,6 +414,7 @@ function input(idx) {
   if (phase === "idle" || phase === "gameover") { startGame(); return; }
   if (phase !== "player") return;
 
+  if (VOICE && window.speechSynthesis?.speaking) window.speechSynthesis.cancel();   // "your turn" still being said
   flash(idx, 250);
   playerInput.push(idx);
   renderProgress();
