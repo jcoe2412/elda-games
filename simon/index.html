@@ -483,13 +483,24 @@ document.addEventListener("keydown", e => {
 // D-pad: Up(12)=Red  Right(15)=Green  Down(13)=Blue  Left(14)=Yellow
 const GP_MAP = { 0: 0, 1: 1, 2: 2, 3: 3, 12: 0, 15: 1, 13: 2, 14: 3 };
 let _gpPrev = {};
+// The d-pad as buttons 12-15 (standard mapping) — or, on many Bluetooth gamepads (8BitDo in D-input mode, …),
+// as the first stick's axes: both count, like in the other games
+function gpPressed(gp, btn) {
+  if (gp.buttons[btn]?.pressed) return true;
+  const ax = gp.axes || [];
+  if (btn === 12) return ax[1] < -0.5;   // up
+  if (btn === 13) return ax[1] >  0.5;   // down
+  if (btn === 14) return ax[0] < -0.5;   // left
+  if (btn === 15) return ax[0] >  0.5;   // right
+  return false;
+}
 
 function pollGamepad() {
   const gp = navigator.getGamepads?.()[0];
   if (gp) {
     if (audioCtx?.state === "suspended") audioCtx.resume();
     for (const [btn, idx] of Object.entries(GP_MAP)) {
-      const pressed = gp.buttons[btn]?.pressed;
+      const pressed = gpPressed(gp, +btn);
       if (pressed && !_gpPrev[btn]) {
         if (phase === "idle" || phase === "gameover") { startGame(); break; }
         input(idx);
