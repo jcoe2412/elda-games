@@ -221,7 +221,35 @@ function ensureTTS() {
   else window.speechSynthesis.addEventListener('voiceschanged', init, { once: true });
 }
 
+// Inside EldaTV the TV speaks for the game — its browser has no voice, so the browser's speech is silent there.
+// EldaTV answers "elda_hello" with "elda_host" {speech}, then says what "elda_speak" sends (EldaSpeaker's voice)
+// and reports "elda_spoken" when done. Anywhere else (a phone, a PC) the browser's own speech is used.
+const EldaHostSpeech = (() => {
+  let available = false, seq = 0;
+  const pending = new Map();                      // id → resolve
+  const settleAll = () => { pending.forEach(r => r()); pending.clear(); };
+  window.addEventListener("message", (e) => {
+    if (e.source !== window.parent || window.parent === window) return;
+    const d = e.data || {};
+    if (d.type === "elda_host" && d.speech) available = true;
+    else if (d.type === "elda_spoken" && pending.has(d.id)) { pending.get(d.id)(); pending.delete(d.id); }
+  });
+  if (window.parent !== window) window.parent.postMessage({ type: "elda_hello" }, "*");
+  function speak(text) {
+    settleAll();                                  // a new sentence replaces the one being said
+    const id = ++seq;
+    return new Promise(resolve => {
+      pending.set(id, resolve);
+      window.parent.postMessage({ type: "elda_speak", id, text }, "*");
+      setTimeout(() => { if (pending.has(id)) { pending.delete(id); resolve(); } }, 10000);
+    });
+  }
+  function cancel() { settleAll(); window.parent.postMessage({ type: "elda_speak_cancel" }, "*"); }
+  return { get available() { return available; }, speak, cancel };
+})();
+
 function speak(text) {
+  if (VOICE && EldaHostSpeech.available) return EldaHostSpeech.speak(text);
   if (!VOICE || !window.speechSynthesis) return Promise.resolve();
   window.speechSynthesis.cancel();
   return new Promise(resolve => {
