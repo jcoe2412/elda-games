@@ -418,14 +418,13 @@ async function showSequence() {
   const stepMs = Math.max(200, 500 - level * 12);
   const gapMs  = Math.max(100, stepMs * 0.4);
 
-  for (const idx of sequence) {
-    await flash(idx, stepMs);
-    await sleep(gapMs);
+  for (let i = 0; i < sequence.length; i++) {
+    await flash(sequence[i], stepMs);
+    if (i < sequence.length - 1) await sleep(gapMs);   // no gap after the last one: the turn starts right away
   }
 
-  await sleep(400);
-  // The player may press at once — "your turn" is said meanwhile, not waited for (it took ~2 s on the TV before
-  // a press counted); a press cuts it short (see input). Same 0.4 s as the online duel.
+  // The player may press as soon as the last colour has flashed — "your turn" is said meanwhile (with the voice
+  // on), not waited for; a press cuts it short (see input). The online duel does the same.
   setStatus(T.yourTurn, "your-turn");
   phase       = "player";
   playerInput = [];

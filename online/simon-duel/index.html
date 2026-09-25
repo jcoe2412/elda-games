@@ -267,9 +267,9 @@ function startPlayback() {
   let i = 0;
   const next = () => {                                    // (a timer chain rather than async/await: the test harness drives a virtual clock)
     if (token !== playToken) return;
-    if (i >= seq.length) { setTimeout(() => finishPlayback(token), 400); return; }
+    if (i >= seq.length) { finishPlayback(token); return; }   // the turn starts once the last colour has flashed
     flash(seq[i++], step);
-    setTimeout(next, step + gap);
+    setTimeout(next, i < seq.length ? step + gap : step);   // no gap after the last one: the turn starts right away
   };
   setTimeout(next, 400);
 }
