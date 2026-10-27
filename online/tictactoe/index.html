@@ -523,9 +523,23 @@ document.addEventListener("keydown", e => {
 document.addEventListener("pointerdown", () => unlockAudio());
 
 // ── Gamepad ───────────────────────────────────────────────────────────────
+// Every connected gamepad counts, not just slot 0: on the EldaAllInOne the browser can list the
+// joystick twice (the real one, held by EldaAllInOneGpio and silent, and its corrected copy), an
+// 8BitDo can come and go, and slot 0 can stay empty after a pad left. A button is pressed if it is on
+// any pad; each stick axis takes the pad pushed furthest.
+function eldaPad() {
+  const pads = [...(navigator.getGamepads?.() || [])].filter(p => p && p.connected);
+  if (pads.length <= 1) return pads[0] || null;
+  const n = Math.max(...pads.map(p => p.buttons.length));
+  return {
+    buttons: Array.from({ length: n }, (_, i) => ({ pressed: pads.some(p => p.buttons[i]?.pressed) })),
+    axes: [0, 1].map(a => pads.reduce((v, p) => Math.abs(p.axes[a] || 0) > Math.abs(v) ? p.axes[a] : v, 0)),
+  };
+}
+
 let _gpPrev = [];
 function pollGamepad() {
-  const gp = navigator.getGamepads?.()[0];
+  const gp = eldaPad();
   if (gp) {
     unlockAudio();
     const hit = i => gp.buttons[i]?.pressed && !_gpPrev[i];
